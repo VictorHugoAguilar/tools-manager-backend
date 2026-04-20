@@ -1,0 +1,25 @@
+{
+    "name": "tool-management-backend",
+    "version": "1.0.0",
+    "description": "Backend API for managing tools",
+    "main": "src/server.js",
+    "scripts": {
+        "migrate:firebase": "node scripts/migrate-tools-to-firebase.js",
+        "start": "node src/server.js",
+        "dev": "node --watch src/server.js"
+    },
+    "keywords": [
+        "backend",
+        "express",
+        "tools",
+        "api"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "dotenv": "^16.4.5",
+        "express": "^4.19.2",
+        "firebase": "^11.0.2",
+        "multer": "^1.4.5-lts.1"
+    }
+}
