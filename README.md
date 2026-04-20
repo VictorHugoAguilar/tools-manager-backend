@@ -52,6 +52,12 @@ Modo desarrollo:
 npm run dev
 ```
 
+Para ejecutar los tests unitarios:
+
+```bash
+npm test
+```
+
 Si quieres subir el contenido actual de `data/tools.json` a Firebase:
 
 ```bash
