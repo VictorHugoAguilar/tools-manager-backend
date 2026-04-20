@@ -5,6 +5,7 @@
     "main": "src/server.js",
     "scripts": {
         "migrate:firebase": "node scripts/migrate-tools-to-firebase.js",
+        "test": "node --test",
         "start": "node src/server.js",
         "dev": "node --watch src/server.js"
     },
