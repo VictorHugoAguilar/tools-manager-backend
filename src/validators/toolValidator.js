@@ -5,7 +5,9 @@ const requiredStringFields = [
     "description",
     "urlSrc",
     "state",
-    "material"
+    "material",
+    "brand",
+    "model"
 ];
 
 const searchableFields = [
@@ -17,6 +19,8 @@ const searchableFields = [
     "urlSrc",
     "state",
     "material",
+    "brand",
+    "model",
     "q"
 ];
 
@@ -29,6 +33,8 @@ const sortableFields = [
     "urlSrc",
     "state",
     "material",
+    "brand",
+    "model",
     "long"
 ];
 
