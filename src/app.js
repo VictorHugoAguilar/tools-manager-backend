@@ -1,9 +1,12 @@
 const express = require("express");
 const multer = require("multer");
 const { toolRouter } = require("./routes/toolRoutes");
+const cors = require("cors");
 
 function createApp() {
     const app = express();
+
+    app.use(cors());
 
     app.use(express.json());
 
