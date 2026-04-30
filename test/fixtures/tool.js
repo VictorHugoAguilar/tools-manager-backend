@@ -6,7 +6,11 @@ const baseTool = {
   urlSrc: "https://example.com/taladro.jpg",
   state: "Disponible",
   material: "Acero",
-  long: 32.5
+  long: 32.5,
+  brand: "Bosch",
+  model: "GSB 13 RE",
+  serialNumber: "SN-0001",
+  location: "Almacen Central"
 };
 
 function createTool(overrides = {}) {

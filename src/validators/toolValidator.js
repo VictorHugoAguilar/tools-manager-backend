@@ -7,7 +7,9 @@ const requiredStringFields = [
     "state",
     "material",
     "brand",
-    "model"
+    "model",
+    "serialNumber",
+    "location"
 ];
 
 const searchableFields = [
@@ -21,6 +23,8 @@ const searchableFields = [
     "material",
     "brand",
     "model",
+    "serialNumber",
+    "location",
     "q"
 ];
 
@@ -35,6 +39,8 @@ const sortableFields = [
     "material",
     "brand",
     "model",
+    "serialNumber",
+    "location",
     "long"
 ];
 

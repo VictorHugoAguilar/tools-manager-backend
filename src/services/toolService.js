@@ -65,6 +65,14 @@ function applyFilters(tools, filters = {}) {
             return false;
         }
 
+        if (filters.serialNumber && !matchesTextFilter(tool.serialNumber, filters.serialNumber)) {
+            return false;
+        }
+
+        if (filters.location && !matchesTextFilter(tool.location, filters.location)) {
+            return false;
+        }
+
         if (filters.q) {
             const searchableFields = [
                 tool.name,
@@ -73,7 +81,9 @@ function applyFilters(tools, filters = {}) {
                 tool.description,
                 tool.urlSrc,
                 tool.state,
-                tool.material
+                tool.material,
+                tool.serialNumber,
+                tool.location
             ];
 
             const matchesQuery = searchableFields.some((field) =>
