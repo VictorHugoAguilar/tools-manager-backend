@@ -4,6 +4,7 @@ const { toolRouter } = require("./routes/toolRoutes");
 const { technicianRouter } = require("./routes/technicianRoutes");
 const { locationRouter } = require("./routes/locationRoutes");
 const { toolTypeRouter } = require("./routes/toolTypeRoutes");
+const { storageBoxRouter } = require("./routes/storageBoxRoutes");
 const cors = require("cors");
 
 function createApp() {
@@ -32,7 +33,11 @@ function createApp() {
                 locations: "GET|POST /api/locations",
                 locationById: "GET|PUT|DELETE /api/locations/:id",
                 toolTypes: "GET|POST /api/tool-types",
-                toolTypeById: "GET|PUT|DELETE /api/tool-types/:id"
+                toolTypeById: "GET|PUT|DELETE /api/tool-types/:id",
+                storageBoxes: "GET|POST /api/storage-boxes",
+                storageBoxById: "GET|PUT|DELETE /api/storage-boxes/:id",
+                storageProducts: "POST /api/storage-boxes/:boxId/products",
+                storageProductById: "PUT|DELETE /api/storage-boxes/:boxId/products/:productId"
             }
         });
     });
@@ -41,6 +46,7 @@ function createApp() {
     app.use("/api/technicians", technicianRouter);
     app.use("/api/locations", locationRouter);
     app.use("/api/tool-types", toolTypeRouter);
+    app.use("/api/storage-boxes", storageBoxRouter);
 
     app.use((err, _req, res, _next) => {
         console.error(err);

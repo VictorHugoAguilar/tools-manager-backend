@@ -12,12 +12,30 @@ function sanitizeFileName(fileName) {
     return fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
 }
 
-function buildStoragePath(toolId, originalName) {
+function buildStoragePath(pathPrefix, originalName) {
     const extension = path.extname(originalName || "").toLowerCase();
     const safeExtension = extension || ".bin";
     const uniqueName = `${Date.now()}-${randomUUID()}${safeExtension}`;
 
-    return `tools/${toolId}/${sanitizeFileName(uniqueName)}`;
+    return `${pathPrefix}/${sanitizeFileName(uniqueName)}`;
+}
+
+async function uploadImage(pathPrefix, file, customMetadata = {}) {
+    const storage = getStorageInstance();
+    const storagePath = buildStoragePath(pathPrefix, file.originalname);
+    const fileRef = ref(storage, storagePath);
+
+    await uploadBytes(fileRef, file.buffer, {
+        contentType: file.mimetype,
+        customMetadata
+    });
+
+    const downloadUrl = await getDownloadURL(fileRef);
+
+    return {
+        storagePath,
+        downloadUrl
+    };
 }
 
 function isFirebaseStorageUrl(url) {
@@ -35,23 +53,18 @@ function isFirebaseStorageUrl(url) {
 }
 
 async function uploadImageForTool(toolId, file) {
-    const storage = getStorageInstance();
-    const storagePath = buildStoragePath(toolId, file.originalname);
-    const fileRef = ref(storage, storagePath);
+    return uploadImage(`tools/${toolId}`, file, { toolId });
+}
 
-    await uploadBytes(fileRef, file.buffer, {
-        contentType: file.mimetype,
-        customMetadata: {
-            toolId
-        }
+async function uploadImageForStorageBox(boxId, file) {
+    return uploadImage(`storage-boxes/${boxId}`, file, { boxId });
+}
+
+async function uploadImageForStorageProduct(boxId, productId, file) {
+    return uploadImage(`storage-boxes/${boxId}/products/${productId}`, file, {
+        boxId,
+        productId
     });
-
-    const downloadUrl = await getDownloadURL(fileRef);
-
-    return {
-        storagePath,
-        downloadUrl
-    };
 }
 
 async function deleteImageByUrl(fileUrl) {
@@ -72,5 +85,7 @@ async function deleteImageByUrl(fileUrl) {
 
 module.exports = {
     uploadImageForTool,
+    uploadImageForStorageBox,
+    uploadImageForStorageProduct,
     deleteImageByUrl
 };

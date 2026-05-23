@@ -1,0 +1,62 @@
+<svg width="1600" height="1000" viewBox="0 0 1600 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="1000" fill="#F8C24E"/>
+
+  <g transform="translate(510 70)">
+    <rect x="16" y="16" width="520" height="240" rx="8" fill="#2E2E2E"/>
+    <rect width="520" height="240" rx="8" fill="#F5F2F1" stroke="#2E2E2E" stroke-width="4"/>
+    <rect width="520" height="48" rx="8" fill="#ECE8E7" stroke="#2E2E2E" stroke-width="4"/>
+    <line x1="0" y1="48" x2="520" y2="48" stroke="#2E2E2E" stroke-width="4"/>
+    <circle cx="24" cy="24" r="8" stroke="#2E2E2E" stroke-width="2"/>
+    <circle cx="48" cy="24" r="8" stroke="#2E2E2E" stroke-width="2"/>
+    <circle cx="72" cy="24" r="8" stroke="#2E2E2E" stroke-width="2"/>
+    <path d="M20 20L28 28M28 20L20 28" stroke="#2E2E2E" stroke-width="1.8"/>
+    <path d="M44 24H52" stroke="#2E2E2E" stroke-width="1.8"/>
+    <path d="M68 24H76" stroke="#2E2E2E" stroke-width="1.8"/>
+    <text x="260" y="138" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="56" font-weight="700" fill="#1F1F22">Gestión de Herramientas</text>
+    <text x="260" y="188" text-anchor="middle" font-family="Georgia, serif" font-size="20" font-style="italic" fill="#1F1F22">Inventario, técnicos y arreglos con un look retro editorial</text>
+  </g>
+
+  <g transform="translate(160 405)">
+    <rect x="14" y="14" width="370" height="104" rx="18" fill="#2E2E2E"/>
+    <rect width="370" height="104" rx="18" fill="#F5F2F1" stroke="#2E2E2E" stroke-width="4"/>
+    <text x="185" y="63" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#222226">Tablero</text>
+    <text x="185" y="89" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#55545D">Vista general del estado</text>
+  </g>
+
+  <g transform="translate(615 405)">
+    <rect x="14" y="14" width="370" height="104" rx="18" fill="#2E2E2E"/>
+    <rect width="370" height="104" rx="18" fill="#F5F2F1" stroke="#2E2E2E" stroke-width="4"/>
+    <text x="185" y="63" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#222226">Inventario</text>
+    <text x="185" y="89" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#55545D">Listado de herramientas</text>
+  </g>
+
+  <g transform="translate(1070 405)">
+    <rect x="14" y="14" width="370" height="104" rx="18" fill="#2E2E2E"/>
+    <rect width="370" height="104" rx="18" fill="#F5F2F1" stroke="#2E2E2E" stroke-width="4"/>
+    <text x="185" y="63" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#222226">Arreglos</text>
+    <text x="185" y="89" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#55545D">Histórico y seguimiento</text>
+  </g>
+
+  <g transform="translate(160 590)">
+    <rect x="14" y="14" width="370" height="104" rx="18" fill="#2E2E2E"/>
+    <rect width="370" height="104" rx="18" fill="#F5F2F1" stroke="#2E2E2E" stroke-width="4"/>
+    <text x="185" y="63" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#222226">Categorías</text>
+    <text x="185" y="89" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#55545D">Agrupación visual simple</text>
+  </g>
+
+  <g transform="translate(615 590)">
+    <rect x="14" y="14" width="370" height="104" rx="18" fill="#2E2E2E"/>
+    <rect width="370" height="104" rx="18" fill="#F5F2F1" stroke="#2E2E2E" stroke-width="4"/>
+    <text x="185" y="63" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#222226">Técnicos</text>
+    <text x="185" y="89" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#55545D">Gestión del equipo técnico</text>
+  </g>
+
+  <g transform="translate(1070 590)">
+    <rect x="14" y="14" width="370" height="104" rx="18" fill="#2E2E2E"/>
+    <rect width="370" height="104" rx="18" fill="#F5F2F1" stroke="#2E2E2E" stroke-width="4"/>
+    <text x="185" y="63" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#222226">Configuración</text>
+    <text x="185" y="89" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#55545D">Catálogos y ajustes</text>
+  </g>
+
+  <text x="800" y="845" text-anchor="middle" font-family="Georgia, serif" font-size="24" font-style="italic" fill="#2A2A30">Ejemplo de dirección visual antes de aplicar el rediseño real</text>
+</svg>
