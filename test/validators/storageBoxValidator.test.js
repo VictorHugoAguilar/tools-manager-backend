@@ -34,12 +34,14 @@ test("validateStorageProductPayload accepts a valid product", () => {
         description: "Acero zincado",
         imageUrl: "",
         quantity: 16,
-        state: "Nuevo"
+        state: "Nuevo",
+        tags: ["fijacion", "acero", "acero"]
     });
 
     assert.equal(result.isValid, true);
     assert.deepEqual(result.errors, []);
     assert.equal(result.data.quantity, 16);
+    assert.deepEqual(result.data.tags, ["fijacion", "acero"]);
 });
 
 test("validateStorageProductPayload rejects invalid state", () => {
@@ -54,5 +56,21 @@ test("validateStorageProductPayload rejects invalid state", () => {
     assert.equal(result.isValid, false);
     assert.deepEqual(result.errors, [
         "state must be one of: Nuevo, Usado"
+    ]);
+});
+
+test("validateStorageProductPayload rejects invalid tags", () => {
+    const result = validateStorageProductPayload({
+        name: "Tornillo M8",
+        description: "Acero zincado",
+        imageUrl: "",
+        quantity: 16,
+        state: "Nuevo",
+        tags: "acero"
+    });
+
+    assert.equal(result.isValid, false);
+    assert.deepEqual(result.errors, [
+        "tags must be an array of strings when provided"
     ]);
 });

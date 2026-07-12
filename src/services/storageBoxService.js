@@ -21,16 +21,23 @@ function sortByText(items, selector) {
     );
 }
 
+function normalizeProductEntity(id, product) {
+    return {
+        id,
+        ...product,
+        tags: Array.isArray(product.tags)
+            ? product.tags.filter(Boolean)
+            : []
+    };
+}
+
 function serializeProducts(snapshotValue) {
     if (!snapshotValue) {
         return [];
     }
 
     return sortByText(
-        Object.entries(snapshotValue).map(([id, product]) => ({
-            id,
-            ...product
-        })),
+        Object.entries(snapshotValue).map(([id, product]) => normalizeProductEntity(id, product)),
         (product) => normalizeText(product.name)
     );
 }
@@ -179,7 +186,7 @@ async function createProduct(boxId, productData) {
     };
 
     await set(newProductRef, product);
-    return product;
+    return normalizeProductEntity(newProductRef.key, product);
 }
 
 async function findProductById(boxId, productId) {
@@ -194,10 +201,7 @@ async function findProductById(boxId, productId) {
         return null;
     }
 
-    return {
-        id: productId,
-        ...snapshot.val()
-    };
+    return normalizeProductEntity(productId, snapshot.val());
 }
 
 async function updateProduct(boxId, productId, productData) {
@@ -214,7 +218,7 @@ async function updateProduct(boxId, productId, productData) {
     };
 
     await set(ref(database, `storageBoxes/${boxId}/products/${productId}`), updatedProduct);
-    return updatedProduct;
+    return normalizeProductEntity(productId, updatedProduct);
 }
 
 async function removeProduct(boxId, productId) {
@@ -261,7 +265,7 @@ async function updateProductImageUrl(boxId, productId, imageUrl) {
 
     const database = getDatabaseInstance();
     await set(ref(database, `storageBoxes/${boxId}/products/${productId}`), updatedProduct);
-    return updatedProduct;
+    return normalizeProductEntity(productId, updatedProduct);
 }
 
 module.exports = {

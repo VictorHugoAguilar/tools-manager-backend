@@ -1,5 +1,21 @@
 const productStates = ["Nuevo", "Usado"];
 
+function normalizeTags(value) {
+    if (value === undefined || value === null || value === "") {
+        return [];
+    }
+
+    if (!Array.isArray(value)) {
+        return null;
+    }
+
+    const tags = value
+        .map((tag) => typeof tag === "string" ? tag.trim() : "")
+        .filter(Boolean);
+
+    return [...new Set(tags)];
+}
+
 function validateStorageBoxPayload(payload, options = {}) {
     const errors = [];
     const data = {};
@@ -95,6 +111,14 @@ function validateStorageProductPayload(payload) {
         errors.push(`state must be one of: ${productStates.join(", ")}`);
     } else {
         data.state = payload.state.trim();
+    }
+
+    const normalizedTags = normalizeTags(payload.tags);
+
+    if (normalizedTags === null) {
+        errors.push("tags must be an array of strings when provided");
+    } else {
+        data.tags = normalizedTags;
     }
 
     return {

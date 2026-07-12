@@ -52,9 +52,13 @@ function createApp() {
         console.error(err);
 
         if (err instanceof multer.MulterError) {
+            const uploadMessage = err.code === "LIMIT_FILE_SIZE"
+                ? "La imagen supera el tamaño máximo permitido."
+                : err.message;
+
             return res.status(400).json({
                 message: "Upload error",
-                errors: [err.message]
+                errors: [uploadMessage]
             });
         }
 

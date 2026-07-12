@@ -146,11 +146,37 @@ test("createProduct stores a product inside an existing box", async () => {
         description: "Acero zincado",
         imageUrl: "",
         quantity: 24,
-        state: "Nuevo"
+        state: "Nuevo",
+        tags: ["fijacion", "acero"]
     });
 
     assert.equal(product.id, "product-1");
     assert.deepEqual(store.storageBoxes.a1.products["product-1"], product);
+});
+
+test("findAll normalizes missing product tags to an empty array", async () => {
+    const { storageBoxService } = createStorageBoxServiceHarness({
+        a1: {
+            id: "a1",
+            code: "BOX-0001",
+            name: "Caja uno",
+            description: "",
+            products: {
+                p1: {
+                    id: "p1",
+                    name: "Tornillo M8",
+                    description: "Acero",
+                    imageUrl: "",
+                    quantity: 4,
+                    state: "Nuevo"
+                }
+            }
+        }
+    });
+
+    const [box] = await storageBoxService.findAll();
+
+    assert.deepEqual(box.products[0].tags, []);
 });
 
 test("removeProduct deletes a stored product", async () => {

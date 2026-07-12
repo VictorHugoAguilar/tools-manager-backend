@@ -226,6 +226,15 @@ async function handleControllerError(res, action) {
         return await action();
     } catch (error) {
         console.error(error);
+        const errorCode = String(error?.code || "");
+
+        if (errorCode.startsWith("storage/")) {
+            return res.status(502).json({
+                message: "Firebase Storage error",
+                errors: [error.message || "Could not upload image to Firebase Storage"]
+            });
+        }
+
         return res.status(500).json({
             message: "Internal server error"
         });
