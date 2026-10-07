@@ -179,6 +179,138 @@ test("findAll normalizes missing product tags to an empty array", async () => {
     assert.deepEqual(box.products[0].tags, []);
 });
 
+test("searchProducts returns boxes with products matching name, properties or tags", async () => {
+    const { storageBoxService } = createStorageBoxServiceHarness({
+        a1: {
+            id: "a1",
+            code: "BOX-0001",
+            name: "Caja tornilleria",
+            description: "",
+            imageUrl: "",
+            products: {
+                p1: {
+                    id: "p1",
+                    name: "Tornillo M8",
+                    description: "Acero inoxidable",
+                    imageUrl: "",
+                    quantity: 10,
+                    state: "Nuevo",
+                    tags: ["fijacion", "inox"]
+                },
+                p2: {
+                    id: "p2",
+                    name: "Arandela",
+                    description: "Metal",
+                    imageUrl: "",
+                    quantity: 2,
+                    state: "Usado",
+                    tags: ["recambio"]
+                }
+            }
+        },
+        b1: {
+            id: "b1",
+            code: "BOX-0002",
+            name: "Caja electricidad",
+            description: "",
+            imageUrl: "",
+            products: {
+                p3: {
+                    id: "p3",
+                    name: "Cable",
+                    description: "Flexible",
+                    imageUrl: "",
+                    quantity: 5,
+                    state: "Nuevo",
+                    tags: ["electricidad"]
+                }
+            }
+        }
+    });
+
+    const result = await storageBoxService.searchProducts("inox");
+
+    assert.equal(result.query, "inox");
+    assert.equal(result.totalBoxes, 1);
+    assert.equal(result.totalProducts, 1);
+    assert.equal(result.boxes[0].box.code, "BOX-0001");
+    assert.deepEqual(result.boxes[0].matchingProducts.map((product) => product.name), ["Tornillo M8"]);
+});
+
+test("searchProducts matches multiple terms across product fields", async () => {
+    const { storageBoxService } = createStorageBoxServiceHarness({
+        a1: {
+            id: "a1",
+            code: "BOX-0001",
+            name: "Caja uno",
+            description: "",
+            imageUrl: "",
+            products: {
+                p1: {
+                    id: "p1",
+                    name: "Tornillo M8",
+                    description: "Acero inoxidable",
+                    imageUrl: "",
+                    quantity: 10,
+                    state: "Nuevo",
+                    tags: ["fijacion"]
+                }
+            }
+        }
+    });
+
+    const result = await storageBoxService.searchProducts("tornillo acero");
+
+    assert.equal(result.totalProducts, 1);
+    assert.equal(result.boxes[0].matchingProducts[0].id, "p1");
+});
+
+test("searchProducts orders results by relevance", async () => {
+    const { storageBoxService } = createStorageBoxServiceHarness({
+        a1: {
+            id: "a1",
+            code: "BOX-0001",
+            name: "Caja descripcion",
+            description: "",
+            imageUrl: "",
+            products: {
+                p1: {
+                    id: "p1",
+                    name: "Pack generico",
+                    description: "Incluye tornillo de repuesto",
+                    imageUrl: "",
+                    quantity: 1,
+                    state: "Nuevo",
+                    tags: []
+                }
+            }
+        },
+        b1: {
+            id: "b1",
+            code: "BOX-0002",
+            name: "Caja nombre",
+            description: "",
+            imageUrl: "",
+            products: {
+                p2: {
+                    id: "p2",
+                    name: "Tornillo M8",
+                    description: "Acero",
+                    imageUrl: "",
+                    quantity: 4,
+                    state: "Nuevo",
+                    tags: []
+                }
+            }
+        }
+    });
+
+    const result = await storageBoxService.searchProducts("tornillo");
+
+    assert.deepEqual(result.boxes.map((boxResult) => boxResult.box.code), ["BOX-0002", "BOX-0001"]);
+    assert.deepEqual(result.boxes[0].matchingProducts.map((product) => product.name), ["Tornillo M8"]);
+});
+
 test("removeProduct deletes a stored product", async () => {
     const { storageBoxService, store, deletedImages } = createStorageBoxServiceHarness({
         a1: {

@@ -12,6 +12,12 @@ function normalizeText(value) {
     return String(value ?? "").trim().toLowerCase();
 }
 
+function normalizeSearchText(value) {
+    return normalizeText(value)
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+}
+
 function sortByText(items, selector) {
     return [...items].sort((left, right) =>
         selector(left).localeCompare(selector(right), "es", {
@@ -19,6 +25,69 @@ function sortByText(items, selector) {
             numeric: true
         })
     );
+}
+
+function buildProductSearchText(product) {
+    return normalizeSearchText([
+        product.name,
+        product.description,
+        product.state,
+        product.quantity,
+        ...(Array.isArray(product.tags) ? product.tags : [])
+    ].join(" "));
+}
+
+function getSearchTerms(query) {
+    return normalizeSearchText(query)
+        .split(/\s+/)
+        .filter(Boolean);
+}
+
+function calculateFieldScore(value, terms, weight) {
+    const normalizedValue = normalizeSearchText(value);
+
+    if (!normalizedValue) {
+        return 0;
+    }
+
+    return terms.reduce((score, term) => {
+        if (normalizedValue === term) {
+            return score + (weight * 2);
+        }
+
+        if (normalizedValue.startsWith(term)) {
+            return score + Math.round(weight * 1.5);
+        }
+
+        if (normalizedValue.includes(term)) {
+            return score + weight;
+        }
+
+        return score;
+    }, 0);
+}
+
+function calculateProductSearchScore(product, terms) {
+    const tagScore = Array.isArray(product.tags)
+        ? product.tags.reduce((score, tag) => score + calculateFieldScore(tag, terms, 35), 0)
+        : 0;
+
+    return [
+        calculateFieldScore(product.name, terms, 60),
+        tagScore,
+        calculateFieldScore(product.state, terms, 20),
+        calculateFieldScore(product.quantity, terms, 14),
+        calculateFieldScore(product.description, terms, 12)
+    ].reduce((total, score) => total + score, 0);
+}
+
+function matchesProductSearch(product, terms) {
+    if (terms.length === 0) {
+        return false;
+    }
+
+    const searchText = buildProductSearchText(product);
+    return terms.every((term) => searchText.includes(term));
 }
 
 function normalizeProductEntity(id, product) {
@@ -108,6 +177,67 @@ async function findById(id) {
     }
 
     return serializeBox(id, rawBox);
+}
+
+async function searchProducts(query) {
+    const normalizedQuery = String(query ?? "").trim();
+    const terms = getSearchTerms(normalizedQuery);
+
+    if (terms.length === 0) {
+        return {
+            query: "",
+            totalBoxes: 0,
+            totalProducts: 0,
+            boxes: []
+        };
+    }
+
+    const boxes = await findAll();
+    const results = boxes
+        .map((box) => {
+            const scoredProducts = box.products
+                .filter((product) => matchesProductSearch(product, terms))
+                .map((product) => ({
+                    product,
+                    score: calculateProductSearchScore(product, terms)
+                }))
+                .sort((left, right) =>
+                    right.score - left.score ||
+                    left.product.name.localeCompare(right.product.name, "es", {
+                        sensitivity: "base",
+                        numeric: true
+                    })
+                );
+            const matchingProducts = scoredProducts.map((result) => result.product);
+            const relevanceScore = scoredProducts.reduce((total, result) => total + result.score, 0);
+            const topScore = scoredProducts[0]?.score ?? 0;
+
+            return {
+                box,
+                matchingProducts,
+                matchCount: matchingProducts.length,
+                relevanceScore,
+                topScore
+            };
+        })
+        .filter((result) => result.matchCount > 0)
+        .sort((left, right) =>
+            right.topScore - left.topScore ||
+            right.matchCount - left.matchCount ||
+            right.relevanceScore - left.relevanceScore ||
+            left.box.code.localeCompare(right.box.code, "es", {
+                sensitivity: "base",
+                numeric: true
+            })
+        )
+        .map(({ relevanceScore, topScore, ...result }) => result);
+
+    return {
+        query: normalizedQuery,
+        totalBoxes: results.length,
+        totalProducts: results.reduce((total, result) => total + result.matchCount, 0),
+        boxes: results
+    };
 }
 
 async function create(boxData) {
@@ -271,6 +401,7 @@ async function updateProductImageUrl(boxId, productId, imageUrl) {
 module.exports = {
     findAll,
     findById,
+    searchProducts,
     create,
     update,
     remove,

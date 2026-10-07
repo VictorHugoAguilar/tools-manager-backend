@@ -7,6 +7,7 @@ const {
     deleteStorageProduct,
     getAllStorageBoxes,
     getStorageBoxById,
+    searchStorageProducts,
     uploadStorageBoxImage,
     uploadStorageProductImage,
     updateStorageBox,
@@ -16,6 +17,7 @@ const {
 const storageBoxRouter = express.Router();
 
 storageBoxRouter.get("/", getAllStorageBoxes);
+storageBoxRouter.get("/search", searchStorageProducts);
 storageBoxRouter.get("/:id", getStorageBoxById);
 storageBoxRouter.post("/", createStorageBox);
 storageBoxRouter.post("/:boxId/products", addStorageProduct);

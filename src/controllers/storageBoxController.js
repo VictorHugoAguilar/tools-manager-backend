@@ -6,6 +6,7 @@ const {
     findProductById,
     remove,
     removeProduct,
+    searchProducts,
     update,
     updateProduct,
     updateImageUrl,
@@ -37,6 +38,19 @@ function getStorageBoxById(req, res) {
         }
 
         return res.json(box);
+    });
+}
+
+function searchStorageProducts(req, res) {
+    return handleControllerError(res, async () => {
+        const query = typeof req.query.q === "string"
+            ? req.query.q
+            : typeof req.query.query === "string"
+                ? req.query.query
+                : "";
+        const result = await searchProducts(query);
+
+        return res.json(result);
     });
 }
 
@@ -244,6 +258,7 @@ async function handleControllerError(res, action) {
 module.exports = {
     getAllStorageBoxes,
     getStorageBoxById,
+    searchStorageProducts,
     createStorageBox,
     updateStorageBox,
     deleteStorageBox,
