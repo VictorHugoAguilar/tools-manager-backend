@@ -1,4 +1,6 @@
 const productStates = ["Nuevo", "Usado"];
+const shelfRows = 5;
+const shelfColumns = 6;
 
 function normalizeTags(value) {
     if (value === undefined || value === null || value === "") {
@@ -60,6 +62,22 @@ function validateStorageBoxPayload(payload, options = {}) {
         errors.push("imageUrl must be a string when provided");
     } else {
         data.imageUrl = payload.imageUrl.trim();
+    }
+
+    if (payload.shelfRow === undefined || payload.shelfRow === null || payload.shelfRow === "") {
+        data.shelfRow = 1;
+    } else if (!Number.isInteger(payload.shelfRow) || payload.shelfRow < 1 || payload.shelfRow > shelfRows) {
+        errors.push(`shelfRow must be an integer between 1 and ${shelfRows}`);
+    } else {
+        data.shelfRow = payload.shelfRow;
+    }
+
+    if (payload.shelfColumn === undefined || payload.shelfColumn === null || payload.shelfColumn === "") {
+        data.shelfColumn = 1;
+    } else if (!Number.isInteger(payload.shelfColumn) || payload.shelfColumn < 1 || payload.shelfColumn > shelfColumns) {
+        errors.push(`shelfColumn must be an integer between 1 and ${shelfColumns}`);
+    } else {
+        data.shelfColumn = payload.shelfColumn;
     }
 
     return {

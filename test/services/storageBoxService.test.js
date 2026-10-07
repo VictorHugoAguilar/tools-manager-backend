@@ -134,6 +134,22 @@ test("create assigns a generated code when code is omitted", async () => {
     });
 
     assert.equal(created.code, "BOX-0005");
+    assert.equal(created.shelfRow, 1);
+    assert.equal(created.shelfColumn, 1);
+});
+
+test("create stores shelf location for a box", async () => {
+    const { storageBoxService } = createStorageBoxServiceHarness();
+
+    const created = await storageBoxService.create({
+        name: "Caja ubicada",
+        description: "Tornilleria",
+        shelfRow: 3,
+        shelfColumn: 4
+    });
+
+    assert.equal(created.shelfRow, 3);
+    assert.equal(created.shelfColumn, 4);
 });
 
 test("createProduct stores a product inside an existing box", async () => {

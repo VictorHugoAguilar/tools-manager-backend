@@ -118,6 +118,8 @@ function serializeBox(id, box) {
         name: box.name,
         description: box.description,
         imageUrl: box.imageUrl || "",
+        shelfRow: Number.isInteger(box.shelfRow) ? box.shelfRow : 1,
+        shelfColumn: Number.isInteger(box.shelfColumn) ? box.shelfColumn : 1,
         products: serializeProducts(box.products)
     };
 }
@@ -253,6 +255,8 @@ async function create(boxData) {
         name: boxData.name,
         description: boxData.description,
         imageUrl: boxData.imageUrl || "",
+        shelfRow: boxData.shelfRow || 1,
+        shelfColumn: boxData.shelfColumn || 1,
         products: {}
     };
 
@@ -273,7 +277,9 @@ async function update(id, boxData) {
         code: boxData.code,
         name: boxData.name,
         description: boxData.description,
-        imageUrl: boxData.imageUrl ?? existingBox.imageUrl ?? ""
+        imageUrl: boxData.imageUrl ?? existingBox.imageUrl ?? "",
+        shelfRow: boxData.shelfRow ?? existingBox.shelfRow ?? 1,
+        shelfColumn: boxData.shelfColumn ?? existingBox.shelfColumn ?? 1
     };
 
     const database = getDatabaseInstance();
