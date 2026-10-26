@@ -21,6 +21,9 @@ const {
     validateStorageBoxPayload,
     validateStorageProductPayload
 } = require("../validators/storageBoxValidator");
+const {
+    getShelfConfig
+} = require("../services/shelfConfigService");
 
 function getAllStorageBoxes(_req, res) {
     return handleControllerError(res, async () => {
@@ -56,7 +59,11 @@ function searchStorageProducts(req, res) {
 
 function createStorageBox(req, res) {
     return handleControllerError(res, async () => {
-        const validation = validateStorageBoxPayload(req.body, { requireCode: false });
+        const shelfConfig = await getShelfConfig();
+        const validation = validateStorageBoxPayload(req.body, {
+            requireCode: false,
+            shelfConfig
+        });
 
         if (!validation.isValid) {
             return res.status(400).json({
@@ -72,7 +79,11 @@ function createStorageBox(req, res) {
 
 function updateStorageBox(req, res) {
     return handleControllerError(res, async () => {
-        const validation = validateStorageBoxPayload(req.body, { requireCode: true });
+        const shelfConfig = await getShelfConfig();
+        const validation = validateStorageBoxPayload(req.body, {
+            requireCode: true,
+            shelfConfig
+        });
 
         if (!validation.isValid) {
             return res.status(400).json({

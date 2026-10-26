@@ -1,6 +1,7 @@
 const productStates = ["Nuevo", "Usado"];
-const shelfRows = 5;
-const shelfColumns = 6;
+const {
+    normalizeStoredShelfConfig
+} = require("./shelfConfigValidator");
 
 function normalizeTags(value) {
     if (value === undefined || value === null || value === "") {
@@ -21,6 +22,9 @@ function normalizeTags(value) {
 function validateStorageBoxPayload(payload, options = {}) {
     const errors = [];
     const data = {};
+    const shelfConfig = normalizeStoredShelfConfig(options.shelfConfig);
+    const shelfRows = shelfConfig.rows;
+    const shelfColumns = shelfConfig.columns;
 
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         return {

@@ -46,6 +46,33 @@ test("validateStorageBoxPayload rejects invalid shelf location", () => {
         "shelfColumn must be an integer between 1 and 6"
     ]);
 });
++
+test("validateStorageBoxPayload honors configured shelf dimensions", () => {
+    const validResult = validateStorageBoxPayload({
+        name: "Caja de brocas",
+        description: "Brocas de metal",
+        shelfRow: 2,
+        shelfColumn: 2
+    }, {
+        shelfConfig: { rows: 2, columns: 2 }
+    });
+    const invalidResult = validateStorageBoxPayload({
+        name: "Caja de brocas",
+        description: "Brocas de metal",
+        shelfRow: 3,
+        shelfColumn: 3
+    }, {
+        shelfConfig: { rows: 2, columns: 2 }
+    });
+
+    assert.equal(validResult.isValid, true);
+    assert.equal(invalidResult.isValid, false);
+    assert.deepEqual(invalidResult.errors, [
+        "shelfRow must be an integer between 1 and 2",
+        "shelfColumn must be an integer between 1 and 2"
+    ]);
+});
+
 
 test("validateStorageProductPayload accepts a valid product", () => {
     const result = validateStorageProductPayload({

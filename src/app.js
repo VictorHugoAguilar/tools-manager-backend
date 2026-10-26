@@ -6,6 +6,7 @@ const { locationRouter } = require("./routes/locationRoutes");
 const { toolTypeRouter } = require("./routes/toolTypeRoutes");
 const { tagRouter } = require("./routes/tagRoutes");
 const { storageBoxRouter } = require("./routes/storageBoxRoutes");
+const { shelfConfigRouter } = require("./routes/shelfConfigRoutes");
 const cors = require("cors");
 
 function createApp() {
@@ -38,6 +39,7 @@ function createApp() {
                 tags: "GET|POST /api/tags",
                 tagById: "GET|PUT|DELETE /api/tags/:id",
                 storageBoxes: "GET|POST /api/storage-boxes",
+                shelfConfig: "GET|PUT /api/shelf-config",
                 storageSearch: "GET /api/storage-boxes/search?q=:query",
                 storageBoxById: "GET|PUT|DELETE /api/storage-boxes/:id",
                 storageProducts: "POST /api/storage-boxes/:boxId/products",
@@ -52,6 +54,7 @@ function createApp() {
     app.use("/api/tool-types", toolTypeRouter);
     app.use("/api/tags", tagRouter);
     app.use("/api/storage-boxes", storageBoxRouter);
+    app.use("/api/shelf-config", shelfConfigRouter);
 
     app.use((err, _req, res, _next) => {
         console.error(err);
