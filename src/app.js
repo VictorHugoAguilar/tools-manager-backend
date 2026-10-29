@@ -7,6 +7,7 @@ const { toolTypeRouter } = require("./routes/toolTypeRoutes");
 const { tagRouter } = require("./routes/tagRoutes");
 const { storageBoxRouter } = require("./routes/storageBoxRoutes");
 const { shelfConfigRouter } = require("./routes/shelfConfigRoutes");
+const { workshopStorageRouter } = require("./routes/workshopStorageRoutes");
 const cors = require("cors");
 
 function createApp() {
@@ -43,7 +44,11 @@ function createApp() {
                 storageSearch: "GET /api/storage-boxes/search?q=:query",
                 storageBoxById: "GET|PUT|DELETE /api/storage-boxes/:id",
                 storageProducts: "POST /api/storage-boxes/:boxId/products",
-                storageProductById: "PUT|DELETE /api/storage-boxes/:boxId/products/:productId"
+                storageProductById: "PUT|DELETE /api/storage-boxes/:boxId/products/:productId",
+                workshopStorage: "GET /api/workshop-storage",
+                workshopStorageSearch: "GET /api/workshop-storage/search?q=:query",
+                workshopStorageCategories: "GET|POST /api/workshop-storage/categories and DELETE /api/workshop-storage/categories/:id",
+                workshopStorageResources: "POST|PUT|DELETE /api/workshop-storage/{shelves,levels,organizers,compartments,materials}"
             }
         });
     });
@@ -55,6 +60,7 @@ function createApp() {
     app.use("/api/tags", tagRouter);
     app.use("/api/storage-boxes", storageBoxRouter);
     app.use("/api/shelf-config", shelfConfigRouter);
+    app.use("/api/workshop-storage", workshopStorageRouter);
 
     app.use((err, _req, res, _next) => {
         console.error(err);
