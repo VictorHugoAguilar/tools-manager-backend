@@ -209,7 +209,7 @@ La API limpia `urlSrc` y, si la imagen estaba en Firebase Storage, elimina tambi
 DELETE /api/tools/:id
 ```
 
-## Almacenamiento del taller
+## Inventario del taller
 
 Este módulo es independiente del almacenamiento de cajas existente. Usa el nuevo nodo
 `workshopStorage` de Realtime Database, organizado en colecciones separadas:
