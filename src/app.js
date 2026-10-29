@@ -47,6 +47,7 @@ function createApp() {
                 storageProductById: "PUT|DELETE /api/storage-boxes/:boxId/products/:productId",
                 workshopStorage: "GET /api/workshop-storage",
                 workshopStorageSearch: "GET /api/workshop-storage/search?q=:query",
+                workshopStorageCategories: "GET|POST /api/workshop-storage/categories and DELETE /api/workshop-storage/categories/:id",
                 workshopStorageResources: "POST|PUT|DELETE /api/workshop-storage/{shelves,levels,organizers,compartments,materials}"
             }
         });

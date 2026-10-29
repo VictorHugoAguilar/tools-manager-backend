@@ -11,6 +11,11 @@ const {
     uploadMaterialImage
 } = require("../services/workshopStorageImageService");
 const { validateWorkshopStoragePayload } = require("../validators/workshopStorageValidator");
+const {
+    createMaterialCategory,
+    deleteMaterialCategory,
+    findAllMaterialCategories
+} = require("../services/workshopStorageCategoryService");
 
 function handleError(res, error) {
     console.error(error);
@@ -72,6 +77,19 @@ function createWorkshopStorageController() {
         search: respond(async (req, res) => {
             const query = typeof req.query.q === "string" ? req.query.q : "";
             return res.json(await searchMaterials(query));
+        }),
+        getMaterialCategories: respond(async (_req, res) => {
+            return res.json(await findAllMaterialCategories());
+        }),
+        createMaterialCategory: respond(async (req, res) => {
+            const category = await createMaterialCategory(req.body?.name);
+            return res.status(201).json(category);
+        }),
+        deleteMaterialCategory: respond(async (req, res) => {
+            const deleted = await deleteMaterialCategory(req.params.id);
+            return deleted
+                ? res.status(204).send()
+                : res.status(404).json({ message: "Material category not found" });
         }),
         createShelf: createRecord("shelves"),
         updateShelf: updateRecord("shelves"),

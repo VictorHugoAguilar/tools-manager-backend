@@ -237,3 +237,11 @@ Las eliminaciones de estructura con elementos dependientes se rechazan para evit
 referencias o inventario. Hay que retirar o recolocar primero los elementos dependientes.
 Las medidas de ancho y fondo de baldas y organizadores son opcionales; cuando se indican
 ambas, la API comprueba que el organizador quepa, permitiendo girarlo 90 grados.
+
+Las categorías editables de los materiales se guardan por separado en
+`workshopStorageSettings/materialCategories`. Se pueden consultar con
+`GET /api/workshop-storage/categories`, crear con `POST /api/workshop-storage/categories`
+(`{ "name": "Adhesivos" }`) y eliminar con
+`DELETE /api/workshop-storage/categories/:id`. La primera configuración ofrece Tornillos,
+Tuercas, Arandelas, Tacos, Piezas eléctricas y Otros. Retirar una opción no modifica los
+materiales ya registrados con esa categoría.

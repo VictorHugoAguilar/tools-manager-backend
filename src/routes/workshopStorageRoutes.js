@@ -6,6 +6,9 @@ const workshopStorageRouter = express.Router();
 
 workshopStorageRouter.get("/", controller.getAll);
 workshopStorageRouter.get("/search", controller.search);
+workshopStorageRouter.get("/categories", controller.getMaterialCategories);
+workshopStorageRouter.post("/categories", controller.createMaterialCategory);
+workshopStorageRouter.delete("/categories/:id", controller.deleteMaterialCategory);
 
 workshopStorageRouter.post("/shelves", controller.createShelf);
 workshopStorageRouter.put("/shelves/:id", controller.updateShelf);
