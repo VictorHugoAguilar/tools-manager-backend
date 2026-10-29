@@ -208,3 +208,32 @@ La API limpia `urlSrc` y, si la imagen estaba en Firebase Storage, elimina tambi
 ```http
 DELETE /api/tools/:id
 ```
+
+## Almacenamiento del taller
+
+Este módulo es independiente del almacenamiento de cajas existente. Usa el nuevo nodo
+`workshopStorage` de Realtime Database, organizado en colecciones separadas:
+
+- `workshopStorage/shelves`
+- `workshopStorage/levels`
+- `workshopStorage/organizers`
+- `workshopStorage/compartments`
+- `workshopStorage/materials`
+
+Realtime Database no usa tablas SQL; estas colecciones son los nuevos conjuntos de datos
+del módulo. Los materiales apuntan a compartimentos y las ubicaciones se resuelven mediante
+las relaciones compartimento → organizador → balda → estantería. Por ello, recolocar un
+organizador no modifica el inventario.
+
+La API nueva está bajo `/api/workshop-storage`:
+
+- `GET /` devuelve la configuración y el inventario.
+- `GET /search?q=...` busca por nombre, categoría y características técnicas.
+- Para cada colección (`shelves`, `levels`, `organizers`, `compartments`, `materials`):
+  `POST /<colección>`, `PUT /<colección>/:id` y `DELETE /<colección>/:id`.
+- `POST /materials/:id/image` sube o reemplaza la fotografía del material.
+
+Las eliminaciones de estructura con elementos dependientes se rechazan para evitar perder
+referencias o inventario. Hay que retirar o recolocar primero los elementos dependientes.
+Las medidas de ancho y fondo de baldas y organizadores son opcionales; cuando se indican
+ambas, la API comprueba que el organizador quepa, permitiendo girarlo 90 grados.

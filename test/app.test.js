@@ -19,4 +19,5 @@ test("createApp registers the root endpoint and tool routes", () => {
     assert.ok(mountedRouters.some((layer) => layer.includes("\\/api\\/tool-types")));
     assert.ok(mountedRouters.some((layer) => layer.includes("\\/api\\/tags")));
     assert.ok(mountedRouters.some((layer) => layer.includes("\\/api\\/shelf-config")));
+    assert.ok(mountedRouters.some((layer) => layer.includes("\\/api\\/workshop-storage")));
 });
