@@ -8,14 +8,29 @@ const { tagRouter } = require("./routes/tagRoutes");
 const { storageBoxRouter } = require("./routes/storageBoxRoutes");
 const { shelfConfigRouter } = require("./routes/shelfConfigRoutes");
 const { workshopStorageRouter } = require("./routes/workshopStorageRoutes");
+const { authRouter } = require("./routes/authRoutes");
+const { userRouter } = require("./routes/userRoutes");
+const { adminRouter } = require("./routes/adminRoutes");
+const {
+    requireAuthenticated,
+    requireCsrf,
+    requirePermission
+} = require("./middleware/authMiddleware");
 const cors = require("cors");
 
 function createApp() {
     const app = express();
+    const allowedOrigins = (process.env.FRONTEND_ORIGINS || "http://localhost:4200")
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean);
 
-    app.use(cors());
+    app.use(cors({
+        origin: (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin)),
+        credentials: true
+    }));
 
-    app.use(express.json());
+    app.use(express.json({ limit: "1mb" }));
 
     app.get("/", (_req, res) => {
         res.json({
@@ -48,22 +63,37 @@ function createApp() {
                 workshopStorage: "GET /api/workshop-storage",
                 workshopStorageSearch: "GET /api/workshop-storage/search?q=:query",
                 workshopStorageCategories: "GET|POST /api/workshop-storage/categories and DELETE /api/workshop-storage/categories/:id",
-                workshopStorageResources: "POST|PUT|DELETE /api/workshop-storage/{shelves,levels,organizers,compartments,materials}"
+                workshopStorageResources: "POST|PUT|DELETE /api/workshop-storage/{shelves,levels,organizers,compartments,materials}",
+                auth: "POST /api/auth/{register,login,password-reset,password-reset/complete,logout}, GET /api/auth/me",
+                profile: "GET|PATCH /api/users/me, PATCH /api/users/me/password, POST /api/users/me/avatar",
+                adminUsers: "GET|POST /api/admin/users, GET|PATCH|DELETE /api/admin/users/:id, PATCH /api/admin/users/:id/password",
+                adminRoles: "GET /api/admin/{roles,permissions}, PATCH /api/admin/roles/:roleId/permissions"
             }
         });
     });
 
-    app.use("/api/tools", toolRouter);
-    app.use("/api/technicians", technicianRouter);
-    app.use("/api/locations", locationRouter);
-    app.use("/api/tool-types", toolTypeRouter);
-    app.use("/api/tags", tagRouter);
-    app.use("/api/storage-boxes", storageBoxRouter);
-    app.use("/api/shelf-config", shelfConfigRouter);
-    app.use("/api/workshop-storage", workshopStorageRouter);
+    app.use("/api/auth", authRouter);
+    app.use("/api/users", userRouter);
+    app.use("/api/admin", adminRouter);
+
+    const protectApplicationApi = [
+        requireAuthenticated,
+        requirePermission("app:access"),
+        (req, res, next) => ["POST", "PUT", "PATCH", "DELETE"].includes(req.method)
+            ? requireCsrf(req, res, next)
+            : next()
+    ];
+    app.use("/api/tools", protectApplicationApi, toolRouter);
+    app.use("/api/technicians", protectApplicationApi, technicianRouter);
+    app.use("/api/locations", protectApplicationApi, locationRouter);
+    app.use("/api/tool-types", protectApplicationApi, toolTypeRouter);
+    app.use("/api/tags", protectApplicationApi, tagRouter);
+    app.use("/api/storage-boxes", protectApplicationApi, storageBoxRouter);
+    app.use("/api/shelf-config", protectApplicationApi, shelfConfigRouter);
+    app.use("/api/workshop-storage", protectApplicationApi, workshopStorageRouter);
 
     app.use((err, _req, res, _next) => {
-        console.error(err);
+        if (!err.statusCode || err.statusCode >= 500) console.error(err);
 
         if (err instanceof multer.MulterError) {
             const uploadMessage = err.code === "LIMIT_FILE_SIZE"
@@ -76,15 +106,16 @@ function createApp() {
             });
         }
 
-        if (err.message === "Only image files are allowed") {
+        if (err.message === "Only image files are allowed" ||
+            err.message === "Only JPEG, PNG or WebP images are allowed") {
             return res.status(400).json({
                 message: "Upload error",
                 errors: [err.message]
             });
         }
 
-        return res.status(500).json({
-            message: "Internal server error"
+        return res.status(err.statusCode || 500).json({
+            message: err.statusCode ? err.message : "Internal server error"
         });
     });
 

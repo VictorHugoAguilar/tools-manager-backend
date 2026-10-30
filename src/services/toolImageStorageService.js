@@ -171,6 +171,10 @@ async function uploadImageForStorageProduct(boxId, productId, file) {
     });
 }
 
+async function uploadImageForUser(userId, file) {
+    return uploadImage(`users/${userId}/profile`, file, { userId });
+}
+
 async function deleteImageByUrl(fileUrl) {
     if (!isFirebaseStorageUrl(fileUrl)) {
         return false;
@@ -214,5 +218,6 @@ module.exports = {
     uploadImageForTool,
     uploadImageForStorageBox,
     uploadImageForStorageProduct,
+    uploadImageForUser,
     deleteImageByUrl
 };

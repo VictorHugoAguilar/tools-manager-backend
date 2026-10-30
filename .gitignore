@@ -39,6 +39,8 @@ testem.log
 /typings
 __screenshots__/
 
+tools-manager.json
+
 # System files
 .DS_Store
 Thumbs.db

@@ -14,7 +14,7 @@ Backend API para gestionar herramientas con Firebase Realtime Database y estas p
 
 ## Requisitos
 
-- Node.js 18 o superior
+- Node.js 20 o superior
 - Proyecto Firebase con Realtime Database
 
 ## Instalacion
@@ -32,13 +32,14 @@ cp .env.example .env
 Variables disponibles:
 
 - `PORT`: puerto del servidor
-- `FIREBASE_API_KEY`
-- `FIREBASE_AUTH_DOMAIN`
 - `FIREBASE_DATABASE_URL`
 - `FIREBASE_PROJECT_ID`
 - `FIREBASE_STORAGE_BUCKET`
-- `FIREBASE_MESSAGING_SENDER_ID`
-- `FIREBASE_APP_ID`
+- `FIREBASE_API_KEY`: clave pública usada por las conexiones Firebase del servidor
+- `GOOGLE_APPLICATION_CREDENTIALS`: credencial de servicio para que el backend acceda a Realtime Database/Storage
+- `FRONTEND_URL` y `FRONTEND_ORIGINS`
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`
+- `PUBLIC_REGISTRATION_ENABLED`
 
 ## Ejecucion
 
@@ -72,19 +73,64 @@ Ejemplo de configuracion:
 
 ```env
 PORT=3000
-FIREBASE_API_KEY=AIzaSyBdvNGddAvCjnOSJPv9KAzwkvkLaMeu7ok
-FIREBASE_AUTH_DOMAIN=la-herreria-dev.firebaseapp.com
+FIREBASE_API_KEY=...
 FIREBASE_DATABASE_URL=https://la-herreria-dev-default-rtdb.europe-west1.firebasedatabase.app
 FIREBASE_PROJECT_ID=la-herreria-dev
 FIREBASE_STORAGE_BUCKET=la-herreria-dev.firebasestorage.app
-FIREBASE_MESSAGING_SENDER_ID=968683705447
-FIREBASE_APP_ID=1:968683705447:web:a0bf87a911e32d190370c2
 ```
 
 La aplicacion guarda las herramientas en el nodo `tools` de Realtime Database.
 Las imagenes se suben a Firebase Storage en la carpeta `tools/<toolId>/`.
 
 ## Endpoints
+
+### Autenticación y usuarios
+
+Las cuentas de la aplicación usan credenciales propias, verificadas por la API; no se usa Firebase Authentication ni inicio de sesión de Google para identificar a los usuarios. Los perfiles y hashes de contraseña (scrypt con salt aleatorio) están en `authUsers`; los roles y permisos en `authRoles` y `authPermissions`; las sesiones y los tokens de recuperación se guardan como hashes en `authSessions` y `authPasswordResets`. No se añade una base SQL ni se modifica el almacenamiento de herramientas/taller. La carga existente de imágenes puede usar una identidad anónima de Firebase Storage según la configuración del bucket.
+
+El servidor verifica sesiones opacas mediante una cookie `HttpOnly`, con expiración y revocación al cambiar contraseña o estado, y protege las solicitudes de escritura con un token CSRF de doble envío. Las rutas de inventario existentes requieren una sesión válida y el permiso `app:access`. Las rutas de administración requieren los permisos correspondientes.
+
+| Método | Ruta | Acceso | Función |
+|---|---|---|---|
+| POST | `/api/auth/register` | Público si está habilitado | Alta con rol `user` e inicio de sesión |
+| POST | `/api/auth/login` | Público | Inicio de sesión |
+| POST | `/api/auth/password-reset` | Público | Solicita instrucciones para restablecer la contraseña |
+| POST | `/api/auth/password-reset/complete` | Público | Establece contraseña usando el token de un solo uso |
+| POST | `/api/auth/logout` | Sesión | Cierre y revocación de sesiones |
+| GET | `/api/auth/me` | Sesión | Usuario de la sesión |
+| GET/PATCH | `/api/users/me` | Sesión | Consultar/actualizar nombre y apellido |
+| PATCH | `/api/users/me/password` | Sesión | Cambiar contraseña revalidando la actual |
+| POST | `/api/users/me/avatar` | Sesión | Subir avatar JPEG, PNG o WebP (máx. 3 MB) |
+| GET | `/api/admin/users` | `users:manage` | Listado con búsqueda, filtros y paginación |
+| GET/POST | `/api/admin/users` | `users:manage` | Consultar/crear usuarios |
+| GET/PATCH/DELETE | `/api/admin/users/:id` | `users:manage` | Consultar/editar/eliminar usuario |
+| PATCH | `/api/admin/users/:id/role` | `users:manage` | Asignar rol |
+| PATCH | `/api/admin/users/:id/status` | `users:manage` | Activar/desactivar cuenta |
+| PATCH | `/api/admin/users/:id/password` | `users:manage` | Establecer contraseña nueva y revocar sesiones |
+| POST | `/api/admin/users/:id/avatar` | `users:manage` | Actualizar avatar de usuario |
+| GET | `/api/admin/roles` | `roles:manage` | Consultar roles |
+| GET | `/api/admin/permissions` | `roles:manage` | Consultar catálogo de permisos |
+| PATCH | `/api/admin/roles/:roleId/permissions` | `roles:manage` | Asignar permisos existentes a un rol |
+
+El listado acepta `search`, `role`, `status=active|inactive`, `sort`, `order=asc|desc`, `page` y `limit` (máximo 100). El correo es inmutable desde el perfil propio; un administrador puede cambiarlo y la API mantiene la unicidad.
+
+### Configuración inicial de autenticación
+
+1. Copia `.env.example` a `.env` y configura Firebase Realtime Database y Storage. El backend sigue necesitando credenciales de servicio (`GOOGLE_APPLICATION_CREDENTIALS` o ADC) para acceder a Firebase; esas credenciales son para la base/Storage, no para autenticar a las personas.
+2. Configura SMTP y `FRONTEND_URL` para enviar enlaces de recuperación de un solo uso, válidos durante 30 minutos.
+3. Define `FRONTEND_ORIGINS` con los orígenes permitidos, separados por comas. En desarrollo se usa `http://localhost:4200`.
+4. El registro público está deshabilitado por defecto. Para habilitarlo, establece `PUBLIC_REGISTRATION_ENABLED=true`; los registros solo pueden obtener el rol de usuario.
+5. Crea el primer administrador desde una terminal interactiva:
+
+   ```bash
+   npm run bootstrap:admin -- "Nombre" "Apellido" admin@example.com
+   ```
+
+   El comando solicita la contraseña sin mostrarla y no permite crear un segundo administrador inicial. Si se ejecuta con el correo del administrador que ya existía en el perfil antiguo, le establece una contraseña nueva para el sistema de autenticación propio. No se asignan privilegios de administrador durante el registro público.
+6. Las contraseñas anteriores no se pueden importar. Las cuentas existentes podrán crear una contraseña propia con «¿Has olvidado tu contraseña?» (requiere SMTP); también se puede asignar desde la gestión de usuarios. Hasta establecerla, no podrán iniciar sesión.
+7. Inicia el servidor con `npm start`. Al arrancar se inicializan los roles y permisos predeterminados de forma idempotente.
+
+Las contraseñas deben tener entre 10 y 128 caracteres e incluir letras y números. Los cambios de cuenta, rol y estado requieren confirmación de autorización en el backend. El último administrador activo no se puede degradar, desactivar ni eliminar; tampoco se permite que el administrador elimine o desactive su propia cuenta.
 
 ### Obtener todas las herramientas
 

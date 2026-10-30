@@ -5,6 +5,7 @@
     "main": "src/server.js",
     "scripts": {
         "migrate:firebase": "node scripts/migrate-tools-to-firebase.js",
+        "bootstrap:admin": "node scripts/bootstrap-admin.js",
         "test": "node --test",
         "start": "node src/server.js",
         "dev": "node --watch src/server.js"
@@ -22,6 +23,8 @@
         "dotenv": "^16.4.5",
         "express": "^4.19.2",
         "firebase": "^11.0.2",
-        "multer": "^1.4.5-lts.1"
+        "firebase-admin": "^13.10.0",
+        "multer": "^1.4.5-lts.1",
+        "nodemailer": "^10.3.1"
     }
 }
