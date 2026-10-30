@@ -216,11 +216,40 @@ async function updateProfileGuarded(uid, changes, options = {}) {
         return updateProfile(uid, changes);
     }
 
+    if (!options.delete) {
+        const snapshot = await getProfilesRef().get();
+        const profiles = snapshot.val() || {};
+        const current = normalizeProfile(uid, profiles[uid]);
+        if (!current) return null;
+
+        if (removesLastActiveAdmin(profiles, uid, changes)) {
+            throw Object.assign(new Error("No se puede dejar el sistema sin administradores activos."), {
+                statusCode: 409
+            });
+        }
+
+        if (changes.email && Object.entries(profiles).some(([id, profile]) =>
+            id !== uid && profile?.email?.trim().toLowerCase() === changes.email.trim().toLowerCase()
+        )) {
+            throw Object.assign(new Error("Ya existe una cuenta con ese correo."), { statusCode: 409 });
+        }
+
+        const profileChanges = { ...changes };
+        if (Object.hasOwn(changes, "isActive") && changes.isActive !== current.isActive) {
+            profileChanges.sessionVersion = current.sessionVersion + 1;
+        }
+        return updateProfile(uid, profileChanges);
+    }
+
+    const existing = await getProfile(uid);
+    if (!existing) return null;
+
     const ref = getProfilesRef();
     let guardError;
     const result = await ref.transaction((profiles) => {
         guardError = undefined;
-        if (!profiles || !profiles[uid]) return;
+        const current = profiles?.[uid];
+        if (!current) return;
         if (removesLastActiveAdmin(profiles, uid, changes, options)) {
             guardError = Object.assign(new Error("No se puede dejar el sistema sin administradores activos."), {
                 statusCode: 409
@@ -228,7 +257,6 @@ async function updateProfileGuarded(uid, changes, options = {}) {
             return;
         }
 
-        const current = profiles[uid];
         if (changes.email && Object.entries(profiles).some(([id, profile]) =>
             id !== uid && profile?.email?.trim().toLowerCase() === changes.email.trim().toLowerCase()
         )) {
@@ -237,22 +265,37 @@ async function updateProfileGuarded(uid, changes, options = {}) {
         }
         if (options.delete) {
             delete profiles[uid];
-        } else {
-            profiles[uid] = {
-                ...current,
-                ...changes,
-                ...(Object.hasOwn(changes, "isActive") && changes.isActive !== current.isActive
-                    ? { sessionVersion: (Number(current.sessionVersion) || 0) + 1 }
-                    : {}),
-                updatedAt: new Date().toISOString()
-            };
+            return profiles;
         }
+        const updated = {
+            ...current,
+            ...changes,
+            ...(Object.hasOwn(changes, "isActive") && changes.isActive !== current.isActive
+                ? { sessionVersion: (Number(current.sessionVersion) || 0) + 1 }
+                : {}),
+            updatedAt: new Date().toISOString()
+        };
+        if (removesAdminMembership) {
+            profiles[uid] = updated;
+            return profiles;
+        }
+        profiles[uid] = updated;
         return profiles;
     });
 
     if (guardError) throw guardError;
-    if (!result.committed) return null;
-    return options.delete ? true : normalizeProfile(uid, result.snapshot.child(uid).val());
+    if (!result.committed) {
+        const latest = await getProfile(uid);
+        if (!latest) return null;
+        if (!options.delete && Object.entries(changes).every(([key, value]) => latest[key] === value)) {
+            return latest;
+        }
+        throw Object.assign(new Error("No se pudo confirmar el cambio del usuario. Inténtalo de nuevo."), {
+            statusCode: 503
+        });
+    }
+    if (options.delete) return true;
+    return normalizeProfile(uid, result.snapshot.child(uid).val());
 }
 
 async function listProfiles(filters = {}) {
