@@ -114,6 +114,21 @@ El servidor verifica sesiones opacas mediante una cookie `HttpOnly`, con expirac
 
 El listado acepta `search`, `role`, `status=active|inactive`, `sort`, `order=asc|desc`, `page` y `limit` (máximo 100). El correo es inmutable desde el perfil propio; un administrador puede cambiarlo y la API mantiene la unicidad.
 
+### Listas de tareas
+
+El tablero es independiente del inventario y se guarda en el nodo `taskBoard` de Firebase Realtime Database. Las columnas y etiquetas iniciales se crean una sola vez. Los adjuntos se guardan en Firebase Storage bajo `task-board/<taskId>/` (máximo 15 MB por archivo). Todos estos endpoints requieren sesión y permiso `app:access`; las escrituras también requieren el token CSRF de la aplicación.
+
+| Método | Ruta | Función |
+|---|---|---|
+| GET | `/api/task-board` | Obtener columnas, tareas, etiquetas y responsables; acepta filtros por búsqueda, lista, prioridad, etiqueta, responsable y vencimiento |
+| POST/PATCH/DELETE | `/api/task-board/columns` y `/api/task-board/columns/:id` | Crear, actualizar o eliminar listas |
+| PUT | `/api/task-board/columns/reorder` | Reordenar listas |
+| POST/PATCH/DELETE | `/api/task-board/tasks` y `/api/task-board/tasks/:id` | Crear, actualizar o eliminar tareas |
+| POST | `/api/task-board/tasks/:id/move` | Mover y reordenar una tarea |
+| POST | `/api/task-board/tasks/:id/comments` | Añadir un comentario |
+| POST/DELETE | `/api/task-board/tasks/:id/attachments` y `/api/task-board/tasks/:id/attachments/:attachmentId` | Subir o eliminar un adjunto |
+| POST/PATCH/DELETE | `/api/task-board/labels` y `/api/task-board/labels/:id` | Crear, actualizar o eliminar etiquetas |
+
 ### Configuración inicial de autenticación
 
 1. Copia `.env.example` a `.env` y configura Firebase Realtime Database y Storage. El backend sigue necesitando credenciales de servicio (`GOOGLE_APPLICATION_CREDENTIALS` o ADC) para acceder a Firebase; esas credenciales son para la base/Storage, no para autenticar a las personas.

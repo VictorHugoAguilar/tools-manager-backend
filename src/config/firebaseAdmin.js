@@ -22,5 +22,6 @@ function getAdminDatabase() {
 }
 
 module.exports = {
+    getAdminApp,
     getAdminDatabase
 };

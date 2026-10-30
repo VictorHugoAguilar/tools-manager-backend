@@ -11,6 +11,7 @@ const { workshopStorageRouter } = require("./routes/workshopStorageRoutes");
 const { authRouter } = require("./routes/authRoutes");
 const { userRouter } = require("./routes/userRoutes");
 const { adminRouter } = require("./routes/adminRoutes");
+const { taskBoardRouter } = require("./routes/taskBoardRoutes");
 const {
     requireAuthenticated,
     requireCsrf,
@@ -64,6 +65,7 @@ function createApp() {
                 workshopStorageSearch: "GET /api/workshop-storage/search?q=:query",
                 workshopStorageCategories: "GET|POST /api/workshop-storage/categories and DELETE /api/workshop-storage/categories/:id",
                 workshopStorageResources: "POST|PUT|DELETE /api/workshop-storage/{shelves,levels,organizers,compartments,materials}",
+                taskBoard: "GET /api/task-board, POST /api/task-board/{columns,tasks,labels}, PATCH /api/task-board/{columns,tasks,labels}/:id, DELETE /api/task-board/{columns,tasks,labels}/:id",
                 auth: "POST /api/auth/{register,login,password-reset,password-reset/complete,logout}, GET /api/auth/me",
                 profile: "GET|PATCH /api/users/me, PATCH /api/users/me/password, POST /api/users/me/avatar",
                 adminUsers: "GET|POST /api/admin/users, GET|PATCH|DELETE /api/admin/users/:id, PATCH /api/admin/users/:id/password",
@@ -91,6 +93,7 @@ function createApp() {
     app.use("/api/storage-boxes", protectApplicationApi, storageBoxRouter);
     app.use("/api/shelf-config", protectApplicationApi, shelfConfigRouter);
     app.use("/api/workshop-storage", protectApplicationApi, workshopStorageRouter);
+    app.use("/api/task-board", protectApplicationApi, taskBoardRouter);
 
     app.use((err, _req, res, _next) => {
         if (!err.statusCode || err.statusCode >= 500) console.error(err);
