@@ -163,19 +163,17 @@ async function deleteProfileForRollback(uid) {
 }
 
 async function updateProfile(uid, changes) {
-    const ref = getProfilesRef();
-    const result = await ref.transaction((profiles) => {
-        if (!profiles || !profiles[uid]) return;
-        profiles[uid] = {
-            ...profiles[uid],
-            ...changes,
-            updatedAt: new Date().toISOString()
-        };
-        return profiles;
+    const ref = getProfilesRef().child(uid);
+    const current = await ref.get();
+    if (!current.exists()) return null;
+
+    await ref.update({
+        ...changes,
+        updatedAt: new Date().toISOString()
     });
 
-    if (!result.committed) return null;
-    return normalizeProfile(uid, result.snapshot.child(uid).val());
+    const updated = await ref.get();
+    return updated.exists() ? normalizeProfile(uid, updated.val()) : null;
 }
 
 async function updatePasswordHash(uid, passwordHash, expectedSessionVersion) {
@@ -204,6 +202,20 @@ async function updatePasswordHash(uid, passwordHash, expectedSessionVersion) {
 }
 
 async function updateProfileGuarded(uid, changes, options = {}) {
+    if (!options.delete && !Object.hasOwn(changes, "roleId") && !Object.hasOwn(changes, "isActive")) {
+        const existing = await getProfile(uid);
+        if (!existing) return null;
+
+        if (changes.email) {
+            const account = await getAccountByEmail(changes.email);
+            if (account && account.id !== uid) {
+                throw Object.assign(new Error("Ya existe una cuenta con ese correo."), { statusCode: 409 });
+            }
+        }
+
+        return updateProfile(uid, changes);
+    }
+
     const ref = getProfilesRef();
     let guardError;
     const result = await ref.transaction((profiles) => {

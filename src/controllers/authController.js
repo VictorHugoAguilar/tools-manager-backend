@@ -69,13 +69,15 @@ function validateProfileInput(body) {
 }
 
 function appendCookie(res, name, value, options = {}) {
-    const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+    const production = process.env.NODE_ENV === "production";
+    const secure = production ? "; Secure" : "";
+    const sameSite = production ? "None" : "Strict";
     const httpOnly = options.httpOnly ? "; HttpOnly" : "";
     const path = options.path || "/";
     const maxAge = options.maxAge === undefined ? "" : `; Max-Age=${options.maxAge}`;
     res.append(
         "Set-Cookie",
-        `${name}=${encodeURIComponent(value)}; Path=${path}; SameSite=Strict${httpOnly}${secure}${maxAge}`
+        `${name}=${encodeURIComponent(value)}; Path=${path}; SameSite=${sameSite}${httpOnly}${secure}${maxAge}`
     );
 }
 
@@ -161,6 +163,16 @@ function getDummyPasswordHash() {
 }
 
 const controller = {
+    csrf: (req, res) => {
+        let token = parseCookies(req.headers.cookie)[CSRF_COOKIE];
+        if (!token) {
+            token = randomBytes(32).toString("base64url");
+            appendCookie(res, CSRF_COOKIE, token, { maxAge: SESSION_TTL_MS / 1000 });
+        }
+        res.set("Cache-Control", "no-store");
+        return res.json({ csrfToken: token });
+    },
+
     register: handle(async (req, res) => {
         if (process.env.PUBLIC_REGISTRATION_ENABLED !== "true") {
             throw createHttpError("El registro público no está habilitado.", 403);

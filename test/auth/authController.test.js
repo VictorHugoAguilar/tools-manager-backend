@@ -1,11 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+    controller,
     getPublicUser,
     validateCredentials,
     validateNewPassword,
     validateProfileInput
 } = require("../../src/controllers/authController");
+const { CSRF_COOKIE } = require("../../src/middleware/authMiddleware");
 const { hashPassword, verifyPassword } = require("../../src/services/passwordService");
 
 test("login validation normalizes email without applying new-password policy", () => {
@@ -59,6 +61,33 @@ test("public user response omits unrecognized sensitive fields", () => {
 
     assert.equal(Object.hasOwn(user, "passwordHash"), false);
     assert.equal(user.email, "ada@example.com");
+});
+
+test("CSRF endpoint returns the session token and sets a cross-origin cookie in production", () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    const headers = {};
+    const cookies = [];
+    let responseBody;
+    const response = {
+        append: (name, value) => cookies.push([name, value]),
+        set: (name, value) => headers[name] = value,
+        json: (body) => responseBody = body
+    };
+
+    try {
+        controller.csrf({ headers: {} }, response);
+    } finally {
+        if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = previousNodeEnv;
+    }
+
+    assert.equal(typeof responseBody.csrfToken, "string");
+    assert.equal(responseBody.csrfToken.length, 43);
+    assert.equal(headers["Cache-Control"], "no-store");
+    assert.equal(cookies[0][0], "Set-Cookie");
+    assert.match(cookies[0][1], new RegExp(`^${CSRF_COOKIE}=${responseBody.csrfToken};`));
+    assert.match(cookies[0][1], /SameSite=None; Secure/);
 });
 
 test("password hashes are salted, verifiable, and never stored as plaintext", async () => {

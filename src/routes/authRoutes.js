@@ -10,6 +10,7 @@ authRouter.post("/login", controller.login);
 authRouter.post("/password-reset", controller.requestPasswordReset);
 authRouter.post("/password-reset/complete", controller.completePasswordReset);
 authRouter.post("/logout", requireAuthenticated, requireCsrf, controller.logout);
+authRouter.get("/csrf", requireAuthenticated, controller.csrf);
 authRouter.get("/me", requireAuthenticated, controller.me);
 
 module.exports = { authRouter };

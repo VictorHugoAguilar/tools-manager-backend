@@ -15,12 +15,14 @@ async function withServer(run) {
 
 test("existing application APIs and admin APIs require a session", async () => {
     await withServer(async (baseUrl) => {
-        const [inventoryResponse, adminResponse] = await Promise.all([
+        const [inventoryResponse, adminResponse, csrfResponse] = await Promise.all([
             fetch(`${baseUrl}/api/tools`),
-            fetch(`${baseUrl}/api/admin/users`)
+            fetch(`${baseUrl}/api/admin/users`),
+            fetch(`${baseUrl}/api/auth/csrf`)
         ]);
         assert.equal(inventoryResponse.status, 401);
         assert.equal(adminResponse.status, 401);
+        assert.equal(csrfResponse.status, 401);
     });
 });
 
