@@ -13,16 +13,18 @@ async function withServer(run) {
     }
 }
 
-test("existing application APIs including task boards require a session", async () => {
+test("existing application APIs including task boards and todoList require a session", async () => {
     await withServer(async (baseUrl) => {
-        const [inventoryResponse, taskBoardResponse, adminResponse, csrfResponse] = await Promise.all([
+        const [inventoryResponse, taskBoardResponse, todoListResponse, adminResponse, csrfResponse] = await Promise.all([
             fetch(`${baseUrl}/api/tools`),
             fetch(`${baseUrl}/api/task-board`),
+            fetch(`${baseUrl}/api/todo-list`),
             fetch(`${baseUrl}/api/admin/users`),
             fetch(`${baseUrl}/api/auth/csrf`)
         ]);
         assert.equal(inventoryResponse.status, 401);
         assert.equal(taskBoardResponse.status, 401);
+        assert.equal(todoListResponse.status, 401);
         assert.equal(adminResponse.status, 401);
         assert.equal(csrfResponse.status, 401);
     });

@@ -12,6 +12,7 @@ const { authRouter } = require("./routes/authRoutes");
 const { userRouter } = require("./routes/userRoutes");
 const { adminRouter } = require("./routes/adminRoutes");
 const { taskBoardRouter } = require("./routes/taskBoardRoutes");
+const { todoListRouter } = require("./routes/todoListRoutes");
 const {
     requireAuthenticated,
     requireCsrf,
@@ -66,6 +67,7 @@ function createApp() {
                 workshopStorageCategories: "GET|POST /api/workshop-storage/categories and DELETE /api/workshop-storage/categories/:id",
                 workshopStorageResources: "POST|PUT|DELETE /api/workshop-storage/{shelves,levels,organizers,compartments,materials}",
                 taskBoard: "GET /api/task-board, POST /api/task-board/{columns,tasks,labels}, PATCH /api/task-board/{columns,tasks,labels}/:id, DELETE /api/task-board/{columns,tasks,labels}/:id",
+                todoList: "GET /api/todo-list, CRUD /api/todo-list/{projects,items,labels}, plus sections, assignments, subtasks, comments, attachments, reminders and notifications",
                 auth: "POST /api/auth/{register,login,password-reset,password-reset/complete,logout}, GET /api/auth/me",
                 profile: "GET|PATCH /api/users/me, PATCH /api/users/me/password, POST /api/users/me/avatar",
                 adminUsers: "GET|POST /api/admin/users, GET|PATCH|DELETE /api/admin/users/:id, PATCH /api/admin/users/:id/password",
@@ -94,6 +96,7 @@ function createApp() {
     app.use("/api/shelf-config", protectApplicationApi, shelfConfigRouter);
     app.use("/api/workshop-storage", protectApplicationApi, workshopStorageRouter);
     app.use("/api/task-board", protectApplicationApi, taskBoardRouter);
+    app.use("/api/todo-list", protectApplicationApi, todoListRouter);
 
     app.use((err, _req, res, _next) => {
         if (!err.statusCode || err.statusCode >= 500) console.error(err);
