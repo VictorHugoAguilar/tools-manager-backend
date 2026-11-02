@@ -221,10 +221,7 @@ async function assertAssigneeExists(assigneeId) {
 async function createColumn(payload) {
     await ensureInitialized();
     const name = normalizeName(payload?.name, "El nombre de la lista");
-    const color = payload?.color ?? "blue";
-    if (!["blue", "mint", "yellow", "rose"].includes(color)) {
-        throw serviceError("El color de la lista no es válido.");
-    }
+    const color = normalizeColor(payload?.color ?? "#9fc9ff");
     const columns = sortByPosition((await boardRef("columns").get()).val());
     const id = randomUUID();
     const column = { name, color, position: columns.length };
@@ -238,10 +235,7 @@ async function updateColumn(id, payload) {
     if (!snapshot.exists()) return null;
     const changes = {};
     if (Object.hasOwn(payload || {}, "name")) changes.name = normalizeName(payload.name, "El nombre de la lista");
-    if (Object.hasOwn(payload || {}, "color")) {
-        if (!["blue", "mint", "yellow", "rose"].includes(payload.color)) throw serviceError("El color de la lista no es válido.");
-        changes.color = payload.color;
-    }
+    if (Object.hasOwn(payload || {}, "color")) changes.color = normalizeColor(payload.color);
     if (!Object.keys(changes).length) throw serviceError("No hay cambios para guardar.");
     await ref.update(changes);
     return { id, ...snapshot.val(), ...changes };

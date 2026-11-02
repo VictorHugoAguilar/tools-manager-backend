@@ -72,10 +72,20 @@ test("board catalogs remain empty after all columns are deliberately removed", a
     assert.deepEqual((await board.getBoard()).columns, []);
 });
 
-test("column creation rejects unsupported colors", async () => {
+test("columns accept custom hex colors and reject invalid color values", async () => {
+    const column = await board.createColumn({ name: "Backlog", color: "#aabbcc" });
+    assert.equal(column.color, "#aabbcc");
+    const updated = await board.updateColumn(column.id, { name: "Preparado", color: "#123456" });
+    assert.equal(updated.name, "Preparado");
+    assert.equal(updated.color, "#123456");
+
     await assert.rejects(
-        board.createColumn({ name: "Backlog", color: "#ffffff" }),
-        { statusCode: 400, message: "El color de la lista no es válido." }
+        board.createColumn({ name: "Inválida", color: "not-a-color" }),
+        { statusCode: 400, message: "El color debe ser un valor hexadecimal válido." }
+    );
+    await assert.rejects(
+        board.updateColumn(column.id, { color: "rgb(0, 0, 0)" }),
+        { statusCode: 400, message: "El color debe ser un valor hexadecimal válido." }
     );
 });
 
