@@ -474,6 +474,61 @@ async function addComment(taskId, text, actor) {
     return { id: commentRef.key, ...comment };
 }
 
+async function updateComment(taskId, commentId, text, actor) {
+    if (![taskId, commentId].every((id) => typeof id === "string" && /^[A-Za-z0-9_-]+$/.test(id))) {
+        throw serviceError("El identificador del comentario no es válido.");
+    }
+    const taskRef = boardRef(`tasks/${taskId}`);
+    const taskSnapshot = await taskRef.get();
+    if (!taskSnapshot.exists()) return null;
+    const commentSnapshot = await taskRef.child(`comments/${commentId}`).get();
+    if (!commentSnapshot.exists()) throw serviceError("El comentario no existe.", 404);
+    const comment = commentSnapshot.val();
+    if (comment.authorId !== actor.id) {
+        throw serviceError("Solo el autor puede editar este comentario.", 403);
+    }
+    const updatedAt = new Date().toISOString();
+    const updatedComment = { ...comment, text: normalizeName(text, "El comentario"), updatedAt };
+    await taskRef.update({
+        [`comments/${commentId}`]: updatedComment,
+        updatedAt,
+        [`history/${randomUUID()}`]: {
+            text: `${actor.firstName} ${actor.lastName} modificó un comentario`.trim(),
+            actorId: actor.id,
+            actorName: `${actor.firstName} ${actor.lastName}`.trim(),
+            createdAt: updatedAt
+        }
+    });
+    return { id: commentId, ...updatedComment };
+}
+
+async function removeComment(taskId, commentId, actor) {
+    if (![taskId, commentId].every((id) => typeof id === "string" && /^[A-Za-z0-9_-]+$/.test(id))) {
+        throw serviceError("El identificador del comentario no es válido.");
+    }
+    const taskRef = boardRef(`tasks/${taskId}`);
+    const taskSnapshot = await taskRef.get();
+    if (!taskSnapshot.exists()) return false;
+    const commentSnapshot = await taskRef.child(`comments/${commentId}`).get();
+    if (!commentSnapshot.exists()) return false;
+    const comment = commentSnapshot.val();
+    if (comment.authorId !== actor.id && !actor.permissions?.includes("users:manage")) {
+        throw serviceError("No tienes permiso para eliminar este comentario.", 403);
+    }
+    const deletedAt = new Date().toISOString();
+    await taskRef.update({
+        [`comments/${commentId}`]: null,
+        updatedAt: deletedAt,
+        [`history/${randomUUID()}`]: {
+            text: `${actor.firstName} ${actor.lastName} eliminó un comentario`.trim(),
+            actorId: actor.id,
+            actorName: `${actor.firstName} ${actor.lastName}`.trim(),
+            createdAt: deletedAt
+        }
+    });
+    return true;
+}
+
 async function addAttachment(taskId, file, actor) {
     const taskRef = boardRef(`tasks/${taskId}`);
     if (!(await taskRef.get()).exists()) return null;
@@ -509,9 +564,11 @@ module.exports = {
     deleteTask,
     getBoard,
     moveTask,
+    removeComment,
     removeAttachment,
     reorderColumns,
     updateColumn,
+    updateComment,
     updateLabel,
     updateTask
 };

@@ -66,7 +66,7 @@ function createApp() {
                 workshopStorageSearch: "GET /api/workshop-storage/search?q=:query",
                 workshopStorageCategories: "GET|POST /api/workshop-storage/categories and DELETE /api/workshop-storage/categories/:id",
                 workshopStorageResources: "POST|PUT|DELETE /api/workshop-storage/{shelves,levels,organizers,compartments,materials}",
-                taskBoard: "GET /api/task-board, POST /api/task-board/{columns,tasks,labels}, PATCH /api/task-board/{columns,tasks,labels}/:id, DELETE /api/task-board/{columns,tasks,labels}/:id",
+                taskBoard: "GET /api/task-board, POST /api/task-board/{columns,tasks,labels}, PATCH /api/task-board/{columns,tasks,labels}/:id, DELETE /api/task-board/{columns,tasks,labels}/:id, PUT|DELETE /api/task-board/tasks/:id/comments/:commentId",
                 todoList: "GET /api/todo-list, CRUD /api/todo-list/{projects,items,labels}, plus sections, assignments, subtasks, comments, attachments, reminders and notifications",
                 auth: "POST /api/auth/{register,login,password-reset,password-reset/complete,logout}, GET /api/auth/me",
                 profile: "GET|PATCH /api/users/me, PATCH /api/users/me/password, POST /api/users/me/avatar",

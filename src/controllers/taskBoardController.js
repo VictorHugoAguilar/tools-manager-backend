@@ -61,6 +61,19 @@ const taskBoardController = {
         const comment = await board.addComment(req.params.id, req.body?.text, req.authUser);
         return comment ? res.status(201).json(comment) : res.status(404).json({ message: "Tarea no encontrada." });
     }),
+    updateComment: respond(async (req, res) => {
+        const comment = await board.updateComment(
+            req.params.id,
+            req.params.commentId,
+            req.body?.text,
+            req.authUser
+        );
+        return comment ? res.json(comment) : res.status(404).json({ message: "Tarea no encontrada." });
+    }),
+    deleteComment: respond(async (req, res) => {
+        const deleted = await board.removeComment(req.params.id, req.params.commentId, req.authUser);
+        return deleted ? res.status(204).send() : res.status(404).json({ message: "Comentario no encontrado." });
+    }),
     addAttachment: respond(async (req, res) => {
         const attachment = await board.addAttachment(req.params.id, req.file, req.authUser);
         return attachment

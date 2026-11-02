@@ -15,6 +15,8 @@ taskBoardRouter.patch("/tasks/:id", taskBoardController.updateTask);
 taskBoardRouter.post("/tasks/:id/move", taskBoardController.moveTask);
 taskBoardRouter.delete("/tasks/:id", taskBoardController.deleteTask);
 taskBoardRouter.post("/tasks/:id/comments", taskBoardController.addComment);
+taskBoardRouter.put("/tasks/:id/comments/:commentId", taskBoardController.updateComment);
+taskBoardRouter.delete("/tasks/:id/comments/:commentId", taskBoardController.deleteComment);
 taskBoardRouter.post("/tasks/:id/attachments", uploadTaskAttachment, taskBoardController.addAttachment);
 taskBoardRouter.delete(
     "/tasks/:id/attachments/:attachmentId",
