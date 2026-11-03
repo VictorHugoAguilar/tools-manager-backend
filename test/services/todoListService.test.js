@@ -92,6 +92,21 @@ test("todoList projects isolate access and enforce viewer write restrictions", a
     );
 });
 
+test("todoList sections can be renamed by project owners", async () => {
+    const project = await todoList.todoListCreateProject({ name: "Proyecto" }, todoListOwner.id);
+    const section = await todoList.todoListCreateSection(project.id, { name: "Pendiente" }, todoListOwner.id);
+
+    const updatedSection = await todoList.todoListUpdateSection(
+        section.id,
+        { name: "En curso" },
+        todoListOwner.id
+    );
+
+    assert.equal(updatedSection.id, section.id);
+    assert.equal(updatedSection.name, "En curso");
+    assert.equal(database.todoList.TodoListSections[section.id].name, "En curso");
+});
+
 test("todoList assignments use active users, project membership, and the shared assignee relation", async () => {
     const project = await todoList.todoListCreateProject({ name: "Proyecto compartido" }, todoListOwner.id);
     await todoList.todoListAddMember(project.id, todoListEditor.id, "editor", todoListOwner.id);

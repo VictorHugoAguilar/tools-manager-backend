@@ -1899,5 +1899,6 @@ module.exports = {
     todoListUpdateItem,
     todoListUpdateLabel,
     todoListUpdateProject,
-    todoListUpdateReminder
+    todoListUpdateReminder,
+    todoListUpdateSection
 };
