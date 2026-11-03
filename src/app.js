@@ -26,6 +26,8 @@ function createApp() {
         .split(",")
         .map((origin) => origin.trim())
         .filter(Boolean);
+    
+    console.log("Allowed origins:", allowedOrigins);
 
     app.use(cors({
         origin: (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin)),
