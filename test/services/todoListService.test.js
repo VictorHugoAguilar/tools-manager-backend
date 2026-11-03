@@ -134,6 +134,38 @@ test("todoList assignments use active users, project membership, and the shared 
     );
 });
 
+test("todoList item listing includes comment counts without exposing comment bodies", async () => {
+    const item = await todoList.todoListCreateItem({ title: "Comentarios" }, todoListOwner.id);
+    await todoList.todoListAddComment(item.id, { content: "Primero" }, todoListOwner.id);
+    await todoList.todoListAddComment(item.id, { content: "Segundo" }, todoListOwner.id);
+
+    const result = await todoList.todoListListItems({
+        view: "all",
+        limit: 100
+    }, todoListOwner.id);
+    const listedItem = result.items.find((entry) => entry.id === item.id);
+
+    assert.equal(listedItem.commentCount, 2);
+    assert.equal(Object.hasOwn(listedItem, "comments"), false);
+});
+
+test("todoList labels accept custom hex colors and reject invalid colors", async () => {
+    const label = await todoList.todoListCreateLabel({ name: "Personalizada", color: "#12aBcF" }, todoListOwner.id);
+    assert.equal(label.color, "#12aBcF");
+
+    const updatedLabel = await todoList.todoListUpdateLabel(label.id, { color: "#abcdef" }, todoListOwner.id);
+    assert.equal(updatedLabel.color, "#abcdef");
+
+    await assert.rejects(
+        todoList.todoListCreateLabel({ name: "Color inválido", color: "javascript:alert(1)" }, todoListOwner.id),
+        { statusCode: 400, message: "El color seleccionado no es válido." }
+    );
+    await assert.rejects(
+        todoList.todoListCreateProject({ name: "Color no permitido", color: "#12aBcF" }, todoListOwner.id),
+        { statusCode: 400, message: "El color seleccionado no es válido." }
+    );
+});
+
 test("todoList assignments reject users outside the project membership", async () => {
     const project = await todoList.todoListCreateProject({ name: "Proyecto privado" }, todoListOwner.id);
     await assert.rejects(

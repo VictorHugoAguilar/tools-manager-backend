@@ -93,6 +93,13 @@ function todoListValidateColor(value) {
     return value;
 }
 
+function todoListValidateLabelColor(value) {
+    if (typeof value === "string" && (TODO_LIST_COLORS.has(value) || /^#[0-9a-f]{6}$/i.test(value))) {
+        return value;
+    }
+    throw todoListError("El color seleccionado no es válido.");
+}
+
 function todoListValidateStringArray(value, label) {
     if (value === undefined) return [];
     if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry || entry.length > 120)) {
@@ -587,7 +594,7 @@ async function todoListCreateLabel(payload, todoListUserId) {
     const todoListNow = new Date().toISOString();
     const todoListLabel = {
         name: todoListName,
-        color: todoListValidateColor(payload?.color || "mint"),
+        color: todoListValidateLabelColor(payload?.color || "mint"),
         ownerUserId: todoListUserId,
         createdAt: todoListNow,
         updatedAt: todoListNow
@@ -611,7 +618,7 @@ async function todoListUpdateLabel(todoListLabelId, payload, todoListUserId) {
         )) throw todoListError("Ya existe una etiqueta con ese nombre.", 409);
         todoListChanges.name = todoListName;
     }
-    if (Object.hasOwn(payload || {}, "color")) todoListChanges.color = todoListValidateColor(payload.color);
+    if (Object.hasOwn(payload || {}, "color")) todoListChanges.color = todoListValidateLabelColor(payload.color);
     if (!Object.keys(todoListChanges).length) throw todoListError("No hay cambios para guardar.");
     todoListChanges.updatedAt = new Date().toISOString();
     await todoListLabelRef.update(todoListChanges);
@@ -842,18 +849,24 @@ async function todoListListItems(todoListFilters, todoListUserId) {
     );
     const todoListTotal = todoListItems.length;
     const todoListPageItems = todoListItems.slice((todoListPage - 1) * todoListLimit, todoListPage * todoListLimit);
-    const todoListChildrenSnapshot = await todoListRef("TodoListChildItems").get();
+    const [todoListChildrenSnapshot, todoListCommentsSnapshot] = await Promise.all([
+        todoListRef("TodoListChildItems").get(),
+        todoListRef("TodoListItemComments").get()
+    ]);
     const todoListChildren = todoListChildrenSnapshot.val() || {};
+    const todoListComments = todoListCommentsSnapshot.val() || {};
 
     return {
         items: todoListPageItems.map((item) => {
             const children = Object.values(todoListChildren)
                 .filter((child) => child.todoListItemId === item.id);
+            const comments = todoListComments[item.id] || {};
             return {
                 ...item,
                 projectName: todoListProjectNames.get(item.todoListId) || "Bandeja de entrada",
                 childCount: children.length,
-                completedChildCount: children.filter((child) => child.status === "completed").length
+                completedChildCount: children.filter((child) => child.status === "completed").length,
+                commentCount: Object.keys(comments).length
             };
         }),
         total: todoListTotal,
