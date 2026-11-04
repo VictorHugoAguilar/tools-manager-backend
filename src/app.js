@@ -13,6 +13,7 @@ const { userRouter } = require("./routes/userRoutes");
 const { adminRouter } = require("./routes/adminRoutes");
 const { taskBoardRouter } = require("./routes/taskBoardRoutes");
 const { todoListRouter } = require("./routes/todoListRoutes");
+const { drawingRouter } = require("./routes/drawingRoutes");
 const {
     requireAuthenticated,
     requireCsrf,
@@ -70,6 +71,7 @@ function createApp() {
                 workshopStorageResources: "POST|PUT|DELETE /api/workshop-storage/{shelves,levels,organizers,compartments,materials}",
                 taskBoard: "GET /api/task-board, POST /api/task-board/{columns,tasks,labels}, PATCH /api/task-board/{columns,tasks,labels}/:id, DELETE /api/task-board/{columns,tasks,labels}/:id, PUT|DELETE /api/task-board/tasks/:id/comments/:commentId",
                 todoList: "GET /api/todo-list, CRUD /api/todo-list/{projects,items,labels}, plus sections, assignments, subtasks, comments, attachments, reminders and notifications",
+                drawing: "CRUD /api/drawing/documents, pages, versioned snapshots, assets and per-user preferences",
                 auth: "POST /api/auth/{register,login,password-reset,password-reset/complete,logout}, GET /api/auth/me",
                 profile: "GET|PATCH /api/users/me, PATCH /api/users/me/password, POST /api/users/me/avatar",
                 adminUsers: "GET|POST /api/admin/users, GET|PATCH|DELETE /api/admin/users/:id, PATCH /api/admin/users/:id/password",
@@ -99,6 +101,7 @@ function createApp() {
     app.use("/api/workshop-storage", protectApplicationApi, workshopStorageRouter);
     app.use("/api/task-board", protectApplicationApi, taskBoardRouter);
     app.use("/api/todo-list", protectApplicationApi, todoListRouter);
+    app.use("/api/drawing", protectApplicationApi, drawingRouter);
 
     app.use((err, _req, res, _next) => {
         if (!err.statusCode || err.statusCode >= 500) console.error(err);
