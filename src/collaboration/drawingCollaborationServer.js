@@ -102,10 +102,24 @@ function attachAccessWatchers(connection, context) {
 }
 
 async function startDrawingCollaborationServer() {
-    const [{ Server }, Y] = await Promise.all([
-        import("@hocuspocus/server"),
-        import("yjs")
-    ]);
+    let Server, Y;
+    try {
+        [{ Server }, Y] = await Promise.all([
+            import("@hocuspocus/server"),
+            import("yjs")
+        ]);
+    } catch (error) {
+        // Un fallo al evaluar los módulos (p. ej. "Unexpected end of array" en lib0)
+        // indica node_modules corrupto: hay que reinstalar dependencias limpiando caché.
+        throw Object.assign(
+            new Error(
+                "No se pudieron cargar las dependencias de colaboración. " +
+                "Reinstala con 'npm ci' limpiando la caché de build del despliegue. " +
+                `Causa: ${error?.message || error}`
+            ),
+            { cause: error }
+        );
+    }
     const actorByRoom = new Map();
     const server = new Server({
         name: "drawing-collaboration",
