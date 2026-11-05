@@ -68,6 +68,10 @@ const todoListEditor = { id: "editor-1", firstName: "Grace", lastName: "Hopper" 
 const todoListViewer = { id: "viewer-1", firstName: "Katherine", lastName: "Johnson" };
 
 test.beforeEach(() => {
+    // Detiene el worker de recordatorios por si un test anterior lo arrancó:
+    // su ejecución en segundo plano podría interferir con la base de datos del
+    // siguiente test.
+    todoList.todoListStopReminderWorker();
     database = {
         authUsers: {
             [todoListOwner.id]: todoListOwner,

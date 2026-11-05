@@ -1624,7 +1624,12 @@ async function todoListCreateReminder(todoListItemId, payload, todoListUserId) {
         createdAt: new Date().toISOString()
     };
     await todoListRef(`TodoListReminders/${todoListItemId}/${todoListReminderId}`).set(todoListReminder);
-    void todoListRunReminderProcessor();
+    // El procesado en caliente es solo una optimización para la app en marcha; en
+    // tests (o si el worker no arrancó) el recordatorio lo recoge el procesador.
+    if (todoListReminderWorkerStarted &&
+        new Date(todoListReminder.reminderDateTime) <= new Date()) {
+        void todoListRunReminderProcessor();
+    }
     return { id: todoListReminderId, ...todoListReminder };
 }
 
@@ -1674,7 +1679,10 @@ async function todoListUpdateReminder(todoListReminderId, payload, todoListUserI
     }
     if (!Object.keys(todoListChanges).length) throw todoListError("No hay cambios para guardar.");
     await todoListRef(`TodoListReminders/${todoListEntry.itemId}/${todoListReminderId}`).update(todoListChanges);
-    if (todoListChanges.status === "scheduled") void todoListRunReminderProcessor();
+    if (todoListChanges.status === "scheduled" && todoListReminderWorkerStarted &&
+        new Date(todoListChanges.reminderDateTime ?? todoListEntry.reminder.reminderDateTime) <= new Date()) {
+        void todoListRunReminderProcessor();
+    }
     return { id: todoListReminderId, ...todoListEntry.reminder, ...todoListChanges };
 }
 
@@ -1779,14 +1787,21 @@ async function todoListProcessDueReminders() {
 
 let todoListReminderWorkerStarted = false;
 let todoListReminderProcessing;
+let todoListReminderTimer;
 function todoListStartReminderWorker() {
     if (todoListReminderWorkerStarted) return;
     todoListReminderWorkerStarted = true;
-    const todoListTimer = setInterval(() => {
+    todoListReminderTimer = setInterval(() => {
         void todoListRunReminderProcessor();
     }, 30 * 1000);
-    todoListTimer.unref();
+    todoListReminderTimer.unref();
     void todoListRunReminderProcessor();
+}
+
+function todoListStopReminderWorker() {
+    if (todoListReminderTimer) clearInterval(todoListReminderTimer);
+    todoListReminderTimer = null;
+    todoListReminderWorkerStarted = false;
 }
 
 function todoListRunReminderProcessor() {
@@ -1894,6 +1909,7 @@ module.exports = {
     todoListSetItemStatus,
     todoListSetSectionPosition,
     todoListStartReminderWorker,
+    todoListStopReminderWorker,
     todoListUpdateChild,
     todoListUpdateComment,
     todoListUpdateItem,
