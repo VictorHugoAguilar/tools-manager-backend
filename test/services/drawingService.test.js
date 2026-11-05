@@ -80,6 +80,22 @@ const drawing = loadModuleWithMocks("../../src/services/drawingService", {
     },
     "firebase-admin/storage": {
         getStorage: () => ({ bucket: () => ({ name: "test-bucket" }) })
+    },
+    "./drawingAccessService": {
+        listSharedDocuments: async () => [],
+        requireDocumentAccess: async (documentId, userId, requiredRole = "Viewer") => {
+            const document = readPath(`drawing/documents/${documentId}`);
+            if (!document || document.deletedAt) return null;
+            const role = document.ownerUserId === userId
+                ? "Owner"
+                : readPath(`drawing/access/${documentId}/permissions/${userId}`)?.role;
+            const active = role === "Owner" ||
+                readPath(`drawing/access/${documentId}/permissions/${userId}`)?.status === "Active";
+            if (!active) throw Object.assign(new Error("No access"), { statusCode: 403 });
+            const levels = { Viewer: 1, Editor: 2, Owner: 3 };
+            if (levels[role] < levels[requiredRole]) throw Object.assign(new Error("No access"), { statusCode: 403 });
+            return { document: { id: documentId, ...document }, role };
+        }
     }
 });
 

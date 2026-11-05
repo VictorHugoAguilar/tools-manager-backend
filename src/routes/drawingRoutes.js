@@ -32,4 +32,20 @@ drawingRouter.post("/documents/:documentId/assets", uploadDrawingAsset, drawingC
 drawingRouter.get("/assets/:assetId", drawingController.downloadAsset);
 drawingRouter.delete("/assets/:assetId", drawingController.deleteAsset);
 
+drawingRouter.get("/users/search", drawingController.searchUsers);
+drawingRouter.get("/invitations", drawingController.listReceivedInvitations);
+drawingRouter.post("/invitations/:invitationId/accept", drawingController.acceptInvitation);
+drawingRouter.post("/invitations/:invitationId/decline", drawingController.declineInvitation);
+drawingRouter.delete("/invitations/:invitationId", drawingController.cancelInvitation);
+drawingRouter.post("/share-links/resolve", drawingController.resolveShareLink);
+drawingRouter.post("/documents/:documentId/collaboration-session", drawingController.createCollaborationSession);
+drawingRouter.get("/documents/:documentId/permissions", drawingController.listPermissions);
+drawingRouter.post("/documents/:documentId/invitations", drawingController.createInvitation);
+drawingRouter.get("/documents/:documentId/invitations", drawingController.listDocumentInvitations);
+drawingRouter.get("/documents/:documentId/share-link", drawingController.getShareLink);
+drawingRouter.post("/documents/:documentId/share-link", drawingController.createShareLink);
+drawingRouter.delete("/documents/:documentId/share-link", drawingController.revokeShareLink);
+drawingRouter.patch("/permissions/:permissionId", drawingController.updatePermission);
+drawingRouter.delete("/permissions/:permissionId", drawingController.revokePermission);
+
 module.exports = { drawingRouter };

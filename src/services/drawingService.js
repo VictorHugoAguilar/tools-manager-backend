@@ -1,6 +1,7 @@
 const { createHash, randomUUID } = require("node:crypto");
 const { getAdminDatabase, getAdminApp } = require("../config/firebaseAdmin");
 const { getStorage } = require("firebase-admin/storage");
+const { listSharedDocuments, requireDocumentAccess } = require("./drawingAccessService");
 
 const MAX_SNAPSHOT_BYTES = 750 * 1024;
 const MAX_SNAPSHOT_OBJECTS = 2500;
@@ -111,19 +112,17 @@ function validateSnapshot(payload) {
     };
 }
 
-async function getDocumentForUser(documentId, userId) {
-    const snapshot = await drawingRef(`documents/${documentId}`).get();
-    const document = snapshot.val();
-    if (!document || document.deletedAt) return null;
-    if (document.ownerUserId !== userId) throw serviceError("No tienes permiso para acceder a esta pizarra.", 403);
-    return { id: documentId, ...document };
+async function getDocumentForUser(documentId, userId, requiredRole = "Viewer", shareToken) {
+    const access = await requireDocumentAccess(documentId, userId, requiredRole, shareToken);
+    if (!access) return null;
+    return { ...access.document, accessRole: access.role };
 }
 
-async function getPageForUser(pageId, userId) {
+async function getPageForUser(pageId, userId, requiredRole = "Viewer", shareToken) {
     const snapshot = await drawingRef(`pages/${pageId}`).get();
     const page = snapshot.val();
     if (!page || page.deletedAt) return null;
-    const document = await getDocumentForUser(page.documentId, userId);
+    const document = await getDocumentForUser(page.documentId, userId, requiredRole, shareToken);
     if (!document) return null;
     return { id: pageId, ...page, document };
 }
@@ -144,6 +143,19 @@ function initialSnapshot() {
     return { objects: [] };
 }
 
+function validateStoredObjects(objects) {
+    try {
+        return validateSnapshot({
+            schemaVersion: 1,
+            expectedVersion: 0,
+            snapshot: { objects }
+        }).snapshot;
+    } catch (error) {
+        if (error?.statusCode === 400) return null;
+        throw error;
+    }
+}
+
 function normalizeStoredSnapshot(value) {
     if (typeof value === "string") {
         try {
@@ -153,9 +165,7 @@ function normalizeStoredSnapshot(value) {
         }
     }
     if (Array.isArray(value)) {
-        return value.every((object) => object && typeof object === "object" && !Array.isArray(object))
-            ? { objects: value }
-            : null;
+        return validateStoredObjects(value);
     }
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     const keys = Object.keys(value);
@@ -165,7 +175,7 @@ function normalizeStoredSnapshot(value) {
     }
 
     const objects = value.objects;
-    if (Array.isArray(objects)) return { objects };
+    if (Array.isArray(objects)) return validateStoredObjects(objects);
     if (objects === null || (typeof objects === "object" && !Array.isArray(objects))) {
         const entries = Object.entries(objects || {});
         if (!entries.length) return initialSnapshot();
@@ -176,7 +186,7 @@ function normalizeStoredSnapshot(value) {
         if (entries.some(([, object]) => !object || typeof object !== "object" || Array.isArray(object))) {
             return null;
         }
-        return { objects: entries.map(([, object]) => object) };
+        return validateStoredObjects(entries.map(([, object]) => object));
     }
     return null;
 }
@@ -191,7 +201,19 @@ function normalizeSnapshotRecord(record) {
     }
     if (Array.isArray(record)) return normalizeStoredSnapshot(record);
     if (!record || typeof record !== "object" || Array.isArray(record)) return null;
-    const storedContent = Object.hasOwn(record, "snapshot") ? record.snapshot : record;
+    let storedContent = record.snapshot;
+    if (!Object.hasOwn(record, "snapshot")) {
+        if (Object.hasOwn(record, "objects")) {
+            const allowedRecordKeys = new Set([
+                "pageId", "version", "schemaVersion", "objects", "contentHash", "createdAt",
+                "createdByUserId", "snapshotId"
+            ]);
+            if (Object.keys(record).some((key) => !allowedRecordKeys.has(key))) return null;
+            storedContent = { objects: record.objects };
+        } else {
+            storedContent = record;
+        }
+    }
     const normalized = normalizeStoredSnapshot(storedContent);
     if (normalized) return normalized;
     if (record.contentHash === EMPTY_SNAPSHOT_HASH) return initialSnapshot();
@@ -274,15 +296,16 @@ async function listDocuments(userId, options = {}) {
     const pageSize = Number.isSafeInteger(limit) ? Math.min(Math.max(limit, 1), 100) : 30;
     const search = typeof options.search === "string" ? options.search.trim().toLocaleLowerCase() : "";
     if (search.length > 120) throw serviceError("La búsqueda no puede superar 120 caracteres.");
-    const indexSnapshot = await drawingRef(`documentsByOwner/${userId}`).get();
+    const sharedOnly = options.scope === "shared";
+    const indexSnapshot = await drawingRef(sharedOnly ? `accessByUser/${userId}` : `documentsByOwner/${userId}`).get();
     const ids = Object.keys(indexSnapshot.val() || {});
-    const documents = await Promise.all(ids.map(async (id) => {
+    const ownedDocuments = sharedOnly ? [] : await Promise.all(ids.map(async (id) => {
         const snapshot = await drawingRef(`documents/${id}`).get();
         const document = snapshot.val();
-        return document && !document.deletedAt
-            ? { id, ...document }
-            : null;
+        return document && !document.deletedAt ? { id, ...document, accessRole: "Owner" } : null;
     }));
+    const sharedDocuments = sharedOnly ? await listSharedDocuments(userId) : [];
+    const documents = [...ownedDocuments, ...sharedDocuments];
     const filtered = documents.filter((document) => document &&
         (options.includeArchived === "true" || !document.isArchived))
         .filter((document) => {
@@ -300,14 +323,14 @@ async function listDocuments(userId, options = {}) {
     };
 }
 
-async function getDocument(documentId, userId) {
-    const document = await getDocumentForUser(documentId, userId);
+async function getDocument(documentId, userId, shareToken) {
+    const document = await getDocumentForUser(documentId, userId, "Viewer", shareToken);
     if (!document) return null;
     return { ...document, pages: await getPagesForDocument(documentId) };
 }
 
 async function updateDocument(documentId, payload, userId) {
-    const document = await getDocumentForUser(documentId, userId);
+    const document = await getDocumentForUser(documentId, userId, "Owner");
     if (!document) return null;
     if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
         !Object.keys(payload).length ||
@@ -322,7 +345,7 @@ async function updateDocument(documentId, payload, userId) {
 }
 
 async function setDocumentArchived(documentId, isArchived, userId) {
-    const document = await getDocumentForUser(documentId, userId);
+    const document = await getDocumentForUser(documentId, userId, "Owner");
     if (!document) return null;
     if (typeof isArchived !== "boolean") throw serviceError("El estado de archivo no es válido.");
     const changes = { isArchived, updatedAt: new Date().toISOString(), version: document.version + 1 };
@@ -331,7 +354,7 @@ async function setDocumentArchived(documentId, isArchived, userId) {
 }
 
 async function deleteDocument(documentId, userId) {
-    const document = await getDocumentForUser(documentId, userId);
+    const document = await getDocumentForUser(documentId, userId, "Owner");
     if (!document) return false;
     const deletedAt = new Date().toISOString();
     await drawingRef().update({
@@ -344,8 +367,9 @@ async function deleteDocument(documentId, userId) {
 }
 
 async function duplicateDocument(documentId, userId) {
-    const source = await getDocument(documentId, userId);
+    const source = await getDocumentForUser(documentId, userId, "Owner");
     if (!source) return null;
+    source.pages = await getPagesForDocument(documentId);
     const now = new Date().toISOString();
     const duplicateId = randomUUID();
     const pageCopies = source.pages.map((page, index) => ({ page, id: randomUUID(), snapshotId: randomUUID(), index }));
@@ -367,9 +391,8 @@ async function duplicateDocument(documentId, userId) {
     };
     for (const copy of pageCopies) {
         const original = copy.page;
-        const snapshotRef = await drawingRef(`snapshots/${original.snapshotId}`).get();
-        const originalSnapshot = snapshotRef.val();
-        const content = normalizeSnapshotRecord(originalSnapshot);
+        const originalSnapshot = await getSnapshot(original.id, userId);
+        const content = normalizeStoredSnapshot(originalSnapshot?.snapshot);
         if (!content) throw serviceError("La página contiene un snapshot guardado no válido.", 500);
         const hash = originalSnapshot?.contentHash ??
             createHash("sha256").update(JSON.stringify(content)).digest("hex");
@@ -399,12 +422,14 @@ async function duplicateDocument(documentId, userId) {
 }
 
 async function reservePagePosition(documentId, userId) {
+    const access = await getDocumentForUser(documentId, userId, "Editor");
+    if (!access) return null;
     let pageLimitReached = false;
     let position = null;
     const transaction = await drawingRef(`documents/${documentId}`).transaction((document) => {
         pageLimitReached = false;
         position = null;
-        if (!document || document.deletedAt || document.ownerUserId !== userId) return;
+        if (!document || document.deletedAt) return;
         const pageCount = Number(document.pageCount) || 0;
         if (pageCount >= 100) {
             pageLimitReached = true;
@@ -424,7 +449,7 @@ async function reservePagePosition(documentId, userId) {
 
 async function releasePageReservation(documentId, userId) {
     await drawingRef(`documents/${documentId}`).transaction((document) => {
-        if (!document || document.deletedAt || document.ownerUserId !== userId) return;
+        if (!document || document.deletedAt) return;
         document.pageCount = Math.max(1, (Number(document.pageCount) || 1) - 1);
         document.version = (Number(document.version) || 0) + 1;
         document.updatedAt = new Date().toISOString();
@@ -433,7 +458,7 @@ async function releasePageReservation(documentId, userId) {
 }
 
 async function createPage(documentId, payload, userId) {
-    const document = await getDocumentForUser(documentId, userId);
+    const document = await getDocumentForUser(documentId, userId, "Editor");
     if (!document) return null;
     if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
         Object.keys(payload).some((key) => key !== "name")) {
@@ -473,11 +498,10 @@ async function createPage(documentId, payload, userId) {
 }
 
 async function duplicatePage(pageId, userId) {
-    const source = await getPageForUser(pageId, userId);
+    const source = await getPageForUser(pageId, userId, "Editor");
     if (!source) return null;
-    const sourceSnapshot = await drawingRef(`snapshots/${source.snapshotId}`).get();
-    const original = sourceSnapshot.val();
-    const snapshot = normalizeSnapshotRecord(original);
+    const original = await getSnapshot(pageId, userId);
+    const snapshot = normalizeStoredSnapshot(original?.snapshot);
     if (!snapshot) throw serviceError("La página contiene un snapshot guardado no válido.", 500);
     const contentHash = original?.contentHash ?? createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
     const position = await reservePagePosition(source.documentId, userId);
@@ -524,7 +548,7 @@ async function duplicatePage(pageId, userId) {
 }
 
 async function updatePage(pageId, payload, userId) {
-    const page = await getPageForUser(pageId, userId);
+    const page = await getPageForUser(pageId, userId, "Editor");
     if (!page) return null;
     if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
         Object.keys(payload).length !== 1 || !Object.hasOwn(payload, "name")) {
@@ -536,13 +560,13 @@ async function updatePage(pageId, payload, userId) {
 }
 
 async function deletePage(pageId, userId) {
-    const page = await getPageForUser(pageId, userId);
+    const page = await getPageForUser(pageId, userId, "Editor");
     if (!page) return false;
     const documentRef = drawingRef(`documents/${page.documentId}`);
     let conflict = false;
     const transaction = await documentRef.transaction((current) => {
         conflict = false;
-        if (!current || current.deletedAt || current.ownerUserId !== userId) return;
+        if (!current || current.deletedAt) return;
         if (Number(current.pageCount) <= 1) {
             conflict = true;
             return;
@@ -575,7 +599,7 @@ async function deletePage(pageId, userId) {
 }
 
 async function reorderPages(documentId, ids, userId) {
-    const document = await getDocumentForUser(documentId, userId);
+    const document = await getDocumentForUser(documentId, userId, "Editor");
     if (!document) return null;
     const pages = await getPagesForDocument(documentId);
     if (!Array.isArray(ids) || ids.length !== pages.length ||
@@ -589,9 +613,22 @@ async function reorderPages(documentId, ids, userId) {
     return getPagesForDocument(documentId);
 }
 
-async function getSnapshot(pageId, userId) {
-    const page = await getPageForUser(pageId, userId);
+async function getSnapshot(pageId, userId, shareToken) {
+    const page = await getPageForUser(pageId, userId, "Viewer", shareToken);
     if (!page) return null;
+    const collaborativeState = await drawingRef(`collaborationStates/${page.documentId}/${pageId}`).get();
+    const collaborativeRecord = collaborativeState.val();
+    if (collaborativeRecord?.snapshot) {
+        const normalized = normalizeStoredSnapshot(collaborativeRecord.snapshot);
+        if (!normalized) throw serviceError("La página contiene un estado colaborativo no válido.", 500);
+        return {
+            pageId,
+            version: collaborativeRecord.version ?? page.version,
+            schemaVersion: collaborativeRecord.schemaVersion ?? 1,
+            snapshot: normalized,
+            contentHash: collaborativeRecord.contentHash ?? ""
+        };
+    }
     const snapshot = await drawingRef(`snapshots/${page.snapshotId}`).get();
     if (!snapshot.exists()) {
         return { pageId, version: page.version, schemaVersion: 1, snapshot: initialSnapshot(), contentHash: "" };
@@ -616,8 +653,12 @@ async function getSnapshot(pageId, userId) {
 }
 
 async function saveSnapshot(pageId, payload, userId) {
-    const page = await getPageForUser(pageId, userId);
+    const page = await getPageForUser(pageId, userId, "Editor");
     if (!page) return null;
+    const collaborativeState = await drawingRef(`collaborationStates/${page.documentId}/${pageId}`).get();
+    if (collaborativeState.exists()) {
+        throw serviceError("Esta página se guarda mediante la sesión colaborativa. Recarga antes de guardar una copia completa.", 409);
+    }
     const validated = validateSnapshot(payload);
     if (validated.expectedVersion !== page.version) {
         throw serviceError("La pizarra ha cambiado desde que la abriste. Recarga para conservar los cambios más recientes.", 409);
@@ -733,8 +774,8 @@ async function saveSnapshot(pageId, payload, userId) {
     return { pageId, version: nextVersion, schemaVersion: validated.schemaVersion, contentHash: validated.contentHash, updatedAt: now };
 }
 
-async function listVersions(pageId, userId) {
-    const page = await getPageForUser(pageId, userId);
+async function listVersions(pageId, userId, shareToken) {
+    const page = await getPageForUser(pageId, userId, "Viewer", shareToken);
     if (!page) return null;
     const versionsSnapshot = await drawingRef(`versionsByPage/${pageId}`).get();
     const versions = Object.entries(versionsSnapshot.val() || {})
@@ -752,8 +793,8 @@ async function listVersions(pageId, userId) {
         .sort((left, right) => right.version - left.version);
 }
 
-async function getVersion(pageId, version, userId) {
-    const page = await getPageForUser(pageId, userId);
+async function getVersion(pageId, version, userId, shareToken) {
+    const page = await getPageForUser(pageId, userId, "Viewer", shareToken);
     if (!page) return null;
     const normalizedVersion = String(version);
     if (!/^(0|[1-9]\d*)$/.test(normalizedVersion) ||
@@ -784,7 +825,7 @@ async function getVersion(pageId, version, userId) {
 async function restoreVersion(pageId, version, userId) {
     const historical = await getVersion(pageId, version, userId);
     if (!historical) return null;
-    const page = await getPageForUser(pageId, userId);
+    const page = await getPageForUser(pageId, userId, "Editor");
     return saveSnapshot(pageId, {
         schemaVersion: historical.schemaVersion,
         expectedVersion: page.version,
@@ -813,10 +854,10 @@ function safeFileName(name) {
 }
 
 async function uploadAsset(documentId, pageId, file, userId) {
-    const document = await getDocumentForUser(documentId, userId);
+    const document = await getDocumentForUser(documentId, userId, "Editor");
     if (!document) return null;
     if (pageId) {
-        const page = await getPageForUser(pageId, userId);
+        const page = await getPageForUser(pageId, userId, "Editor");
         if (!page || page.documentId !== documentId) throw serviceError("La página no pertenece a esta pizarra.", 404);
     }
     validateAssetFile(file);
@@ -852,24 +893,24 @@ async function uploadAsset(documentId, pageId, file, userId) {
     return publicAsset;
 }
 
-async function getAssetForUser(assetId, userId) {
+async function getAssetForUser(assetId, userId, requiredRole = "Viewer", shareToken) {
     const assetSnapshot = await drawingRef(`assets/${assetId}`).get();
     const asset = assetSnapshot.val();
     if (!asset || asset.isDeleted) return null;
-    const document = await getDocumentForUser(asset.documentId, userId);
+    const document = await getDocumentForUser(asset.documentId, userId, requiredRole, shareToken);
     if (!document) return null;
     return asset;
 }
 
-async function streamAsset(assetId, userId) {
-    const asset = await getAssetForUser(assetId, userId);
+async function streamAsset(assetId, userId, shareToken) {
+    const asset = await getAssetForUser(assetId, userId, "Viewer", shareToken);
     if (!asset) return null;
     const bucket = getStorage(getAdminApp()).bucket();
     return { asset, stream: bucket.file(asset.storageKey).createReadStream() };
 }
 
 async function deleteAsset(assetId, userId) {
-    const asset = await getAssetForUser(assetId, userId);
+    const asset = await getAssetForUser(assetId, userId, "Editor");
     if (!asset) return false;
     const now = new Date().toISOString();
     await drawingRef().update({
@@ -882,8 +923,8 @@ async function deleteAsset(assetId, userId) {
     return true;
 }
 
-async function getPreferences(pageId, userId) {
-    const page = await getPageForUser(pageId, userId);
+async function getPreferences(pageId, userId, shareToken) {
+    const page = await getPageForUser(pageId, userId, "Viewer", shareToken);
     if (!page) return null;
     const snapshot = await drawingRef(`preferences/${pageId}/${userId}`).get();
     return snapshot.val() || {
@@ -894,8 +935,8 @@ async function getPreferences(pageId, userId) {
     };
 }
 
-async function savePreferences(pageId, payload, userId) {
-    const page = await getPageForUser(pageId, userId);
+async function savePreferences(pageId, payload, userId, shareToken) {
+    const page = await getPageForUser(pageId, userId, "Viewer", shareToken);
     if (!page) return null;
     const allowed = new Set(["cameraState", "gridEnabled", "snapToGrid", "background", "updatedAt"]);
     if (!payload || typeof payload !== "object" || Array.isArray(payload) ||

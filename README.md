@@ -14,7 +14,7 @@ Backend API para gestionar herramientas con Firebase Realtime Database y estas p
 
 ## Requisitos
 
-- Node.js 20 o superior
+- Node.js 22 o superior
 - Proyecto Firebase con Realtime Database
 
 ## Instalacion
