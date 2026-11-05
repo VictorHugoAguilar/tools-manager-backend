@@ -115,10 +115,14 @@ async function startDrawingCollaborationServer() {
         debounce: 1000,
         maxDebounce: 5000,
         websocketOptions: { maxPayload: MAX_COLLABORATION_STATE_BYTES },
-        async onUpgrade({ request }) {
+        async onUpgrade({ request, socket }) {
             const origin = request.headers.origin;
             if (!origin || !allowedOrigins().includes(origin)) {
-                throw Object.assign(new Error("Origen no permitido."), { statusCode: 403 });
+                // Lanzar una excepción aquí tumba el proceso (Hocuspocus la relanza
+                // en el listener "upgrade"): se responde 403 y se cierra el socket.
+                console.warn("Drawing collaboration upgrade rejected: origin not allowed", { origin });
+                socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+                socket.destroy();
             }
         },
         async onAuthenticate({ documentName, token, connectionConfig }) {
