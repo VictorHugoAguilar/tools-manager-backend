@@ -1022,13 +1022,13 @@ function todoListNormalizeRecurrence(value, dueDate) {
     return recurrence;
 }
 
-function todoListAuditedItemDestination(data, root, listId, sectionId, userId, labelIds, assigneeIds, moving = false) {
+function todoListAuditedItemDestination(data, root, listId, sectionId, userId, labelIds, assigneeIds, moving = false, allowArchived = false) {
     let ownerId = userId;
     if (listId) {
         todoListValidateAuditId(listId);
         todoListAuditedSectionProject(data, listId, userId);
         const project = data.TodoLists[listId];
-        if (project.isArchived) {
+        if (project.isArchived && !allowArchived) {
             throw todoListError(moving
                 ? "No se pueden mover tareas a un proyecto archivado."
                 : "No se pueden añadir tareas a un proyecto archivado.", 409);
@@ -1397,6 +1397,111 @@ async function todoListGetItem(todoListItemId, todoListUserId) {
 }
 
 async function todoListUpdateItem(todoListItemId, payload, todoListUserId) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListItemId);
+        todoListValidateAuditId(todoListUserId);
+        const activityId = randomUUID();
+        const newRecurrenceId = randomUUID();
+        const now = new Date().toISOString();
+        const datesChanged = ["dueDate", "dueTime", "timeZone"].some((field) => Object.hasOwn(payload || {}, field));
+        await transactTodoItem({ targetId: todoListItemId, actorId: todoListUserId, action: "todo.item.updated",
+            change: (data, root) => {
+                const item = todoListAuditedItem(data, todoListItemId, todoListUserId);
+                const changes = {};
+                if (Object.hasOwn(payload || {}, "title")) changes.title = todoListNormalizeName(payload.title, "El título", 200);
+                if (Object.hasOwn(payload || {}, "description")) changes.description = todoListNormalizeDescription(payload.description);
+                const hasList = Object.hasOwn(payload || {}, "todoListId");
+                if (hasList) changes.todoListId = payload.todoListId || "";
+                if (Object.hasOwn(payload || {}, "sectionId")) changes.sectionId = payload.sectionId || "";
+                const listId = changes.todoListId ?? item.todoListId;
+                const sectionId = changes.sectionId ?? item.sectionId;
+                if (Object.hasOwn(payload || {}, "priority")) changes.priority = todoListValidatePriority(payload.priority);
+                if (Object.hasOwn(payload || {}, "isImportant")) {
+                    if (typeof payload.isImportant !== "boolean") throw todoListError("La importancia debe ser verdadera o falsa.");
+                    changes.isImportant = payload.isImportant;
+                }
+                if (Object.hasOwn(payload || {}, "dueDate")) changes.dueDate = todoListValidateDate(payload.dueDate);
+                if (Object.hasOwn(payload || {}, "dueTime")) changes.dueTime = todoListValidateTime(payload.dueTime);
+                if (Object.hasOwn(payload || {}, "timeZone")) changes.timeZone = todoListValidateTimeZone(payload.timeZone);
+                const hasLabels = Object.hasOwn(payload || {}, "labelIds");
+                const hasAssignees = Object.hasOwn(payload || {}, "assigneeUserIds");
+                const labels = hasLabels ? todoListValidateStringArray(payload.labelIds, "Las etiquetas")
+                    : todoListAuditedRelationIds(data, "TodoListItemLabels", todoListItemId);
+                const assignees = hasAssignees ? todoListValidateStringArray(payload.assigneeUserIds, "Los responsables")
+                    : todoListAuditedRelationIds(data, "TodoListItemAssignees", todoListItemId);
+                const ownerId = todoListAuditedItemDestination(data, root, listId, sectionId, todoListUserId,
+                    labels, assignees, true, !hasList);
+                if (hasList) changes.ownerUserId = ownerId;
+                let recurrence;
+                let recurrenceToRemove;
+                if (Object.hasOwn(payload || {}, "recurrence")) {
+                    if (item.recurrenceId) todoListValidateAuditId(item.recurrenceId);
+                    recurrence = todoListNormalizeRecurrence(payload.recurrence, changes.dueDate ?? item.dueDate);
+                    if (recurrence && !item.recurrenceId) {
+                        if (Object.hasOwn(data.TodoListRecurrences || {}, newRecurrenceId)) {
+                            throw todoListError("La recurrencia ya existe.", 409);
+                        }
+                        changes.recurrenceId = newRecurrenceId;
+                    } else if (!recurrence && item.recurrenceId) {
+                        recurrenceToRemove = item.recurrenceId;
+                        changes.recurrenceId = "";
+                    }
+                }
+                if (listId !== item.todoListId || sectionId !== item.sectionId) {
+                    changes.position = Object.values(data.TodoListItems).filter((other) =>
+                        other.todoListId === listId && other.sectionId === sectionId && other.isArchived !== true).length;
+                }
+                if (!Object.keys(changes).length && !hasAssignees && !hasLabels) {
+                    throw todoListError("No hay cambios para guardar.");
+                }
+                changes.updatedAt = now;
+                if (recurrence) {
+                    const recurrenceId = changes.recurrenceId || item.recurrenceId;
+                    data.TodoListRecurrences = { ...(data.TodoListRecurrences || {}), [recurrenceId]: {
+                        ...recurrence, todoListItemId, ownerUserId: todoListUserId,
+                        nextDueDate: changes.dueDate || item.dueDate
+                    } };
+                }
+                if (recurrenceToRemove) {
+                    data.TodoListRecurrences = data.TodoListRecurrences || {};
+                    data.TodoListRecurrences[recurrenceToRemove] = {
+                        ...(data.TodoListRecurrences[recurrenceToRemove] || {}), isActive: false
+                    };
+                }
+                Object.assign(item, changes);
+                if (hasLabels) {
+                    data.TodoListItemLabels = data.TodoListItemLabels || {};
+                    data.TodoListItemLabels[todoListItemId] = Object.fromEntries(labels.map((id) => [id, true]));
+                }
+                if (hasAssignees) {
+                    data.TodoListItemAssignees = data.TodoListItemAssignees || {};
+                    data.TodoListItemAssignees[todoListItemId] = Object.fromEntries(assignees.map((id) => [id, true]));
+                }
+                if (datesChanged) {
+                    const reminders = data.TodoListReminders?.[todoListItemId] || {};
+                    for (const reminder of Object.values(reminders)) {
+                        if (!["scheduled", "processing"].includes(reminder.status)) continue;
+                        if (reminder.type !== "custom" && !item.dueDate) {
+                            reminder.status = "cancelled";
+                        } else {
+                            if (reminder.type !== "custom") {
+                                reminder.reminderDateTime = todoListReminderDateTime(
+                                    item.dueDate, item.dueTime, item.timeZone, reminder.type
+                                );
+                            }
+                            if (reminder.status === "processing") {
+                                reminder.status = "scheduled";
+                                delete reminder.processingLeaseUntil;
+                            }
+                        }
+                    }
+                }
+                todoListAuditedActivity(data, todoListItemId, activityId, todoListUserId, "updated", null, changes, now);
+                return { value: data, result: true };
+            } });
+        if (datesChanged) void todoListRunReminderProcessor();
+        return todoListGetItem(todoListItemId, todoListUserId);
+    }
     const { item: todoListExisting } = await todoListGetItemAccess(todoListItemId, todoListUserId, true);
     const todoListChanges = {};
     if (Object.hasOwn(payload || {}, "title")) {

@@ -171,6 +171,100 @@ test("item creation and moves atomically preserve relations, recurrence, activit
     assert.equal(published.length, 4);
 });
 
+test("item edits atomically preserve relations, recurrence, activity and reminder rescheduling", async () => {
+    const h = harness({
+        authUsers: { owner: { firstName: "Ada" }, editor: { firstName: "Editor" } },
+        todoList: {
+            TodoLists: { project: { ownerUserId: "owner", isArchived: false } },
+            TodoListMembers: { project: { editor: { role: "editor" } } },
+            TodoListSections: { first: { todoListId: "project" }, second: { todoListId: "project" } },
+            TodoListLabels: { label: { ownerUserId: "owner", name: "private label" } }
+        }
+    });
+    const item = await h.todo.todoListCreateItem({
+        title: "private title", todoListId: "project", sectionId: "first", dueDate: "2099-06-01",
+        dueTime: "10:00", timeZone: "UTC"
+    }, "owner");
+    const other = await h.todo.todoListCreateItem({ title: "other", todoListId: "project", sectionId: "second" }, "owner");
+    h.root.todoList.TodoListReminders = { [item.id]: {
+        relative: { status: "processing", processingLeaseUntil: "2099-01-01", type: "before_1h",
+            reminderDateTime: "2099-06-01T09:00:00.000Z" },
+        custom: { status: "scheduled", type: "custom", reminderDateTime: "2099-06-01T10:00:00.000Z" }
+    } };
+    const updated = await h.todo.todoListUpdateItem(item.id, {
+        title: "secret title", sectionId: "second", labelIds: ["label"], assigneeUserIds: ["editor"],
+        dueDate: "2099-06-02", recurrence: { frequency: "daily" }
+    }, "owner");
+    assert.equal(updated.position, 1);
+    assert.equal(h.root.todoList.TodoListItems[other.id].position, 0);
+    assert.deepEqual(updated.labelIds, ["label"]);
+    assert.deepEqual(updated.assigneeUserIds, ["editor"]);
+    assert.equal(updated.recurrence.frequency, "daily");
+    assert.equal(updated.recurrence.nextDueDate, "2099-06-02");
+    assert.equal(updated.activities.find((entry) => entry.action === "updated").newValue.title, "secret title");
+    const reminders = h.root.todoList.TodoListReminders[item.id];
+    assert.equal(reminders.relative.reminderDateTime, "2099-06-02T09:00:00.000Z");
+    assert.equal(reminders.relative.status, "scheduled");
+    assert.equal(reminders.relative.processingLeaseUntil, undefined);
+    assert.equal(reminders.custom.reminderDateTime, "2099-06-01T10:00:00.000Z");
+    const recurrenceId = updated.recurrenceId;
+    await h.todo.todoListUpdateItem(item.id, { dueDate: "", recurrence: null, labelIds: [], assigneeUserIds: [] }, "owner");
+    assert.equal(h.root.todoList.TodoListRecurrences[recurrenceId].isActive, false);
+    assert.equal(h.root.todoList.TodoListItems[item.id].recurrenceId, "");
+    assert.deepEqual(h.root.todoList.TodoListItemLabels[item.id], {});
+    assert.deepEqual(h.root.todoList.TodoListItemAssignees[item.id], {});
+    assert.equal(h.root.todoList.TodoListReminders[item.id].relative.status, "cancelled");
+    const events = Object.values(h.root.auditOutbox);
+    assert.equal(events.filter((event) => event.action === "todo.item.updated").length, 2);
+    assert.doesNotMatch(JSON.stringify(events), /private title|secret title|private label|2099/);
+    const published = [];
+    const worker = new AuditOutboxWorker({ getRealtimeDatabase: () => h.database,
+        getFirestoreDatabase: () => ({ collection: () => ({ doc: () => ({ create: async (event) => published.push(event) }) }) }) });
+    await worker.flush();
+    assert.equal(published.length, 4);
+});
+
+test("item edits recheck permissions and references on retry without committing failures", async () => {
+    const h = harness({
+        authUsers: { owner: {}, editor: {} },
+        todoList: {
+            TodoLists: { project: { ownerUserId: "owner" } },
+            TodoListMembers: { project: { editor: { role: "editor" } } },
+            TodoListSections: { first: { todoListId: "project" } },
+            TodoListLabels: { label: { ownerUserId: "owner" } },
+            TodoListItems: { item: { title: "old", todoListId: "project", sectionId: "first", dueDate: "" } }
+        }
+    });
+    h.retry((root) => { root.todoList.TodoListMembers.project.editor.role = "viewer"; });
+    await assert.rejects(h.todo.todoListUpdateItem("item", { title: "new" }, "editor"), { statusCode: 403 });
+    h.retry((root) => { delete root.todoList.TodoListLabels.label; });
+    await assert.rejects(h.todo.todoListUpdateItem("item", { labelIds: ["label"] }, "owner"), { statusCode: 400 });
+    h.retry((root) => { delete root.todoList.TodoListSections.first; });
+    await assert.rejects(h.todo.todoListUpdateItem("item", { title: "new" }, "owner"), { statusCode: 404 });
+    assert.equal(h.root.todoList.TodoListItems.item.title, "old");
+    assert.equal(h.root.auditOutbox, undefined);
+    h.fail();
+    await assert.rejects(h.todo.todoListUpdateItem("item", { title: "new" }, "owner"), /database unavailable/);
+    assert.equal(h.root.todoList.TodoListItems.item.title, "old");
+});
+
+test("item edits retain archived-project behavior and reject empty or invalid edits", async () => {
+    const h = harness({
+        authUsers: { owner: {} },
+        todoList: {
+            TodoLists: { project: { ownerUserId: "owner", isArchived: true } },
+            TodoListItems: { item: { title: "old", todoListId: "project", sectionId: "", dueDate: "" } }
+        }
+    });
+    await assert.rejects(h.todo.todoListUpdateItem("item", {}, "owner"), { statusCode: 400 });
+    await assert.rejects(h.todo.todoListUpdateItem("item", { isImportant: "yes" }, "owner"), { statusCode: 400 });
+    await assert.rejects(h.todo.todoListUpdateItem("item", { todoListId: "project" }, "owner"), { statusCode: 409 });
+    assert.equal(h.root.auditOutbox, undefined);
+    const updated = await h.todo.todoListUpdateItem("item", { title: "new" }, "owner");
+    assert.equal(updated.title, "new");
+    assert.equal(Object.keys(h.root.auditOutbox).length, 1);
+});
+
 test("item priority, importance, archive and ordering are audited with reminder cancellation", async () => {
     const h = harness({
         authUsers: { owner: { firstName: "Ada" } },

@@ -116,7 +116,7 @@ auditan hitos y cambios de acceso, no cada actualización WebSocket.
 | Tablero: comentarios y adjuntos | Auditoría experimental `AUDIT_TASK_BOARD_TASKS_ENABLED`: `task_board.comment.created/updated/deleted` y `task_board.attachment.created/deleted`. | Validar la integración con Storage y diseñar la conciliación de archivos conservados; eventos sin texto, nombres ni URL. |
 | Lista de tareas: proyectos, orden, archivo y miembros | Auditoría experimental `AUDIT_TODO_PROJECTS_ENABLED`: `todo.project.created/updated/deleted/archived/restored/reordered` y `todo.member.added/removed`. | Validar en Firebase y completar la auditoría de las operaciones relacionadas antes de habilitar. Lecturas: agregados. |
 | Lista de tareas: secciones | Auditoría experimental `AUDIT_TODO_SECTIONS_ENABLED`: `todo.section.created/updated/deleted/reordered`. | Validar en Firebase y completar las operaciones relacionadas antes de habilitar. La eliminación de un proyecto audita el proyecto, no cada sección eliminada en cascada. |
-| Lista de tareas: tareas y subtareas | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.item.created/moved/archived/unarchived/reordered`, `todo.item.importance.updated`, `todo.item.priority.updated` y `todo.child.created/updated/deleted`. La duplicación utiliza el alta y genera `todo.item.created`. | Faltan `todo.item.updated/deleted/completed/reopened/duplicated`. La duplicación no valida atómicamente la tarea de origen. |
+| Lista de tareas: tareas y subtareas | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.item.created/updated/moved/archived/unarchived/reordered`, `todo.item.importance.updated`, `todo.item.priority.updated` y `todo.child.created/updated/deleted`. La duplicación utiliza el alta y genera `todo.item.created`. | Faltan `todo.item.deleted/completed/reopened/duplicated`. La duplicación no valida atómicamente la tarea de origen. |
 | Lista de tareas: etiquetas | Auditoría experimental `AUDIT_TODO_LABELS_ENABLED`: `todo.label.created/updated/deleted`. | Validar en Firebase y completar las rutas que modifican relaciones de etiquetas antes de habilitar. |
 | Lista de tareas: comentarios | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.comment.created/updated/deleted`. | Validar permisos y concurrencia en Firebase. No guardar contenido ni nombres en los eventos. |
 | Lista de tareas: recordatorios manuales | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.reminder.created/updated/deleted`. | Validar en Firebase y coordinar con la edición de tareas y el procesador automático antes de habilitar. |
@@ -265,7 +265,7 @@ a estas transacciones: no activar hasta completar esa integración y validar
 concurrencia real.
 
 `AUDIT_TODO_ITEMS_ENABLED=true` habilita experimentalmente la auditoría de
-creación, movimiento, archivo, desarchivo, importancia, prioridad y ordenación
+creación, edición, movimiento, archivo, desarchivo, importancia, prioridad y ordenación
 de tareas, además de alta, edición y eliminación de subtareas, comentarios y
 recordatorios manuales.
 Las referencias a proyectos, secciones,
@@ -274,6 +274,8 @@ la actividad y el evento. La creación también guarda en ella la recurrencia
 inicial. Los eventos solo contienen identificadores y acción, no títulos ni
 contenido. La respuesta detallada se consulta después de la confirmación: si
 esa lectura falla, la operación ya puede haberse guardado y auditado.
+La edición confirma también los cambios de etiquetas, responsables, recurrencia
+y reprogramación o cancelación de recordatorios junto con la actividad.
 Al archivar una tarea se cancelan en la transacción sus recordatorios pendientes
 o en procesamiento; las actividades de subtareas también se guardan en ella.
 La edición de comentarios exige ser el autor; su eliminación exige ser el autor
@@ -286,7 +288,7 @@ realiza sus propias escrituras y su entrega no está auditada: deben integrarse
 y comprobarse las posibles carreras con modificaciones manuales.
 Requiere `AUDIT_TODO_SECTIONS_ENABLED=true` y, por tanto,
 `AUDIT_TODO_PROJECTS_ENABLED=true`; el backend rechaza una configuración
-incompleta. La edición general, eliminación, estados, recurrencia automática y
+incompleta. La eliminación, estados, recurrencia automática y
 restantes operaciones todavía no están auditadas. La duplicación pasa por el
 alta y produce `todo.item.created`, pero su lectura de origen es independiente.
 No activar hasta integrar las rutas restantes y validar Firebase, las condiciones
