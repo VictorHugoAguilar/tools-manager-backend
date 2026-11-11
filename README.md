@@ -84,6 +84,205 @@ Las imagenes se suben a Firebase Storage en la carpeta `tools/<toolId>/`.
 
 ## Endpoints
 
+### Telemetría (base experimental, incompleta)
+
+La ingesta y la cola de eventos de frontend están desactivadas por defecto mediante
+`TELEMETRY_ENABLED=false`. El dashboard es preliminar: faltan la instrumentación
+completa de la aplicación, métricas de frontend y métricas WebSocket completas,
+y auditoría durable de cambios de usuarios. Las auditorías experimentales de
+herramientas y permisos de roles están desactivadas por defecto. No debe considerarse una
+solución de monitorización lista para producción.
+
+La auditoría de negocio sigue incompleta. Existe una implementación experimental
+para herramientas, desactivada por defecto con `AUDIT_TOOLS_ENABLED=false`.
+Cuando se habilita, creación, modificación, cambio de estado, modificación de la
+referencia de imagen y eliminación escriben el cambio en `tools` y un evento
+en `auditOutbox` mediante una transacción en la raíz de Realtime Database. Los
+eventos incluyen identificadores, acción y fecha, pero no nombres, imágenes ni
+contenido de la herramienta. El proceso backend publica la outbox en Firestore
+`auditEvents` cada cinco segundos y elimina cada entrada solo después de
+confirmar la escritura; reintentos tras un fallo son idempotentes. Si una entrada
+está dañada o entra en conflicto, se conserva y se registra el error.
+
+La auditoría experimental de cambios de permisos por rol se activa por separado
+con `AUDIT_ROLES_ENABLED=true` (por defecto `false`). La modificación de
+`authRoles` y su evento se escriben en la misma transacción; el evento registra
+el actor, el rol y los identificadores de permisos efectivos antes y después,
+como cadenas JSON ordenadas. No incluye nombres de usuarios, credenciales ni
+datos del perfil. Si cambia un rol concurrentemente, el evento refleja el estado
+previo de la transacción que finalmente se confirmó. La comprobación de permisos
+obligatorios del rol administrador se mantiene.
+
+El publicador se ejecuta cuando cualquiera de las dos banderas está activa y
+procesa toda la outbox, con independencia del tipo de evento. Al desactivar
+ambas banderas se detiene el publicador; las entradas pendientes permanecen en
+Realtime Database y se reanudan al volver a habilitar al menos una bandera.
+
+Esta opción mantiene las rutas actuales, pero cada transacción afecta a la raíz
+completa y puede entrar en conflicto con escrituras de otras funcionalidades.
+La implementación rechaza cambios auditados cuando la raíz serializada supera
+8 MiB, antes y después del cambio; la acumulación de la outbox también consume
+espacio. Firebase limita a 16 MB una solicitud de escritura desde los SDK.
+**No activar en producción** sin verificar el tamaño real, las reglas y permisos,
+la carga, los límites y la recuperación mediante emuladores y pruebas de
+concurrencia. Storage y Realtime Database no comparten transacciones: la subida
+o eliminación física de imágenes puede fallar por separado y aún necesita
+conciliación durable. La auditoría de cambios de usuarios y asignación de roles
+a usuarios no está implementada. Tampoco se ha probado esta fase contra Firebase real.
+
+La ruta `/monitorizacion` requiere el permiso `monitoring:app`, verificado también
+en `GET /api/monitoring/overview`. El catálogo incorpora los permisos nuevos al
+iniciar el backend sin modificar permisos de roles existentes: un administrador
+debe asignar explícitamente `monitoring:app` al rol deseado y el usuario debe
+volver a consultar su perfil. Cada consulta escribe primero un evento durable de
+acceso en `auditEvents`; si la auditoría falla, no se entregan datos. Firestore
+debe estar habilitado y las credenciales de servidor deben poder leer eventos y
+escribir la auditoría. Cada actualización genera un acceso auditado. La interfaz
+muestra hasta 25 eventos de la última hora, 24 horas o 7 días y la salud del
+recolector de la instancia que responde, no la del conjunto de instancias.
+Las métricas y estados sin fuente aparecen como «Sin datos».
+
+La sección de logs permite buscar por intervalo, servicio, nivel, nombre exacto
+de evento y `traceId`. La API `GET /api/monitoring/events` exige `from` y `to`
+UTC ISO-8601, limita el intervalo a siete días y devuelve hasta 25 resultados y
+un cursor para la siguiente página. Filtra por el entorno del servidor, requiere
+`monitoring:app` y registra el acceso en `auditEvents` antes de leer. No ofrece
+búsqueda de texto libre ni filtros por usuario o ruta en esta fase. El cursor
+identifica el último evento de la página y solo es válido con los mismos filtros
+y fechas; si ese documento se elimina por TTL se debe iniciar una nueva búsqueda.
+`GET /api/monitoring/traces/:traceId` utiliza el mismo rango y paginación para
+consultar una traza concreta, y también audita el acceso.
+
+`GET /api/monitoring/metrics` requiere `from` y `to` en el mismo formato UTC,
+un intervalo entre un minuto y siete días, `interval=1m|1h` y una de las parejas
+`service=backend&metric=http_requests` o
+`service=websocket&metric=websocket_activity`. Devuelve solo minutos completos;
+los grupos horarios en los extremos pueden ser parciales. La ausencia de
+intervalos no implica cero actividad. `GET /api/monitoring/services` devuelve
+las señales recientes de backend y WebSocket; frontend y almacenamiento son
+`null` porque no se ha medido su disponibilidad. Ambos endpoints exigen
+`monitoring:app` y registran el acceso antes de consultar Firestore.
+
+Las consultas necesitan los índices compuestos de
+`firestore.monitoring.indexes.json`. Incorpóralos a la configuración de índices
+de Firestore del proyecto y despliega esa configuración con Firebase CLI antes
+de usar los filtros; combinar con cualquier configuración de índices existente,
+no sustituirla sin revisarla. La creación de índices puede tardar varios minutos.
+La consulta inicial necesita un índice de `monitoringEvents` con
+`environment` ascendente y `receivedAt` descendente (Firestore añade
+`__name__` descendente). Si Firestore devuelve un enlace para crearlo, ábrelo
+con una cuenta autorizada en el proyecto correcto, confirma la creación y espera
+a que el índice esté habilitado. Crear solo ese índice permite superar el primer
+error, pero las búsquedas y consultas de métricas o heartbeats pueden necesitar
+los demás índices del archivo. Para el resumen también se necesitan los índices
+de `monitoringMetricBuckets` (`environment`, `metricName`, `service` e
+`intervalStart`, todos ascendentes) y `monitoringInstances` (`environment`
+ascendente y `heartbeatAt` descendente). Cada uno debe estar habilitado en el
+proyecto al que apunta el backend. Un índice ausente o en construcción devuelve
+`503 MONITORING_INDEX_UNAVAILABLE`, sin exponer enlaces ni detalles internos
+al navegador; el servidor conserva el error original en sus registros.
+
+Con telemetría habilitada en cada proceso, el backend y el servidor WebSocket
+publican un heartbeat en `monitoringInstances` al comenzar a escuchar y después
+cada 30 segundos, con timestamp asignado por Firestore. El panel considera
+recientes las señales de los últimos 120 segundos; una señal reciente solo
+indica que una instancia pudo escribir en Firestore, no que el servicio esté
+disponible para usuarios. Una señal antigua o ausente tampoco demuestra por sí
+sola que el servicio esté caído. Se muestra la última señal de las instancias
+consultadas en las últimas 48 horas, separadas por entorno; la consulta falla
+explícitamente si supera 500 documentos en lugar de devolver un conteo parcial.
+La salud del heartbeat en el recolector corresponde solo a la instancia que
+responde. Configura el TTL de Firestore en `expiresAt` para
+`monitoringInstances` (retención asignada de 48 horas) y conserva el índice
+de campo único para `heartbeatAt`. La expiración TTL es eventual.
+
+El backend agrega por minuto y por instancia las peticiones HTTP completadas
+(exceptuadas las rutas de telemetría y monitorización), sus respuestas 5xx y
+duraciones. Los intervalos cerrados se almacenan en `monitoringMetricBuckets`;
+el panel suma las instancias del entorno actual y representa la latencia media.
+Solo se incluyen minutos completos dentro del intervalo seleccionado: los datos
+del minuto en curso no aparecen hasta cerrarse. La ausencia de una muestra no se
+interpreta como disponibilidad ni como cero peticiones. El p95 y el p99 se muestran como
+rangos estimados a partir del histograma, no como mediciones exactas. Los
+recuentos no representan usuarios y los errores 4xx no se cuentan como 5xx.
+
+Las métricas utilizan memoria acotada y reintentos limitados, por lo que pueden
+perderse en reinicios o ante fallos prolongados; el panel muestra los descartes
+de la instancia que responde. Cada consulta limita la lectura a 25.000 intervalos
+y devuelve un error explícito si se supera ese límite, sin mostrar sumas
+incompletas. Configura la política TTL de Firestore en `expiresAt` también para
+`monitoringMetricBuckets` (retención asignada de 90 días). El campo `intervalStart`
+debe conservar su índice de campo único. El almacenamiento y costes de Firestore
+dependen del tráfico y número de instancias.
+
+Al activarla, `POST /api/telemetry/events` requiere sesión, `app:access` y CSRF,
+acepta lotes JSON de hasta 50 eventos y 64 KiB, y limita las solicitudes por
+usuario y proceso. La respuesta `202` indica únicamente la aceptación en la cola
+local volátil, no la persistencia en Firestore. La cola prioriza WARN y ERROR,
+tiene capacidad y reintentos limitados y puede perder datos al reiniciar. Este
+primer recolector acepta únicamente los nombres del catálogo de frontend y los
+campos `schemaVersion`, `eventId`, `occurredAt`, `eventName`, `traceId` y
+`durationMs`; no acepta atributos ni datos personales arbitrarios.
+
+El cliente Angular dispone de captura experimental de errores globales,
+fallos HTTP y navegación, desactivada por defecto con `telemetryEnabled: false`
+en sus archivos de entorno. Para probarla hay que habilitarla en el entorno
+correspondiente, reconstruir el frontend y habilitar también `TELEMETRY_ENABLED`
+en el backend. El navegador necesita un contexto seguro para generar UUID.
+Los eventos se generan únicamente con una sesión conocida; no incluyen la URL,
+el mensaje o stack del error, cuerpos ni credenciales. Las peticiones a la API
+reciben un `X-Trace-Id` independiente, pero el endpoint de telemetría y los
+orígenes externos quedan excluidos.
+
+El cliente usa un búfer limitado a 200 eventos, envía hasta 25 cada cinco
+segundos o al alcanzar ese tamaño y conserva primero los errores bajo presión.
+Reintenta hasta tres veces con espera creciente; un cambio de usuario descarta
+el búfer anterior. Al ocultarse o cerrarse la página intenta enviar lo pendiente
+con `fetch` y `keepalive` solo si el token CSRF ya está disponible; ese envío no
+está garantizado. Los eventos rechazados por el servidor no se reintentan
+individualmente porque la respuesta solo informa de cantidades. El cierre
+brusco o los fallos prolongados pueden perder datos.
+
+El proceso de colaboración WebSocket usa su propia cola y worker cuando
+`TELEMETRY_ENABLED=true` está configurado en ese proceso. Registra aperturas y
+cierres de conexiones colaborativas, fallos de autenticación y errores al cargar
+o guardar documentos. Cada conexión recibe un identificador aleatorio para
+relacionar apertura y cierre; no se registran usuarios, salas, tokens, mensajes
+ni contenido de los dibujos. Los eventos son volátiles hasta su escritura y
+pueden perderse en reinicios o fallos de Firestore. Por cada minuto con
+actividad, se guardan por instancia contadores de aperturas, cierres y
+actualizaciones recibidas en `monitoringMetricBuckets`; no se almacenan los
+mensajes. El panel suma los intervalos cerrados del entorno seleccionado,
+pero los huecos no demuestran inactividad y los recuentos pueden ser
+incompletos por reinicios, desbordamientos o fallos de escritura. Cada heartbeat del
+proceso informa también de la salud de su agregador; el panel solo suma datos
+de instancias recientes y señala cuando falta esa información. No puede informar
+de pérdidas de procesos que ya no envían señales. Cada heartbeat del
+proceso WebSocket incluye el número actual de conexiones colaborativas lógicas
+(una conexión a una sala, no usuarios únicos ni necesariamente sockets físicos)
+y contadores acumulados de aperturas, cierres y actualizaciones recibidas desde
+el inicio del proceso. No se contabilizan todos los mensajes del protocolo.
+El panel suma conexiones únicamente de instancias con señal reciente; excluye
+instancias sin señal y la cifra puede ser parcial o tener hasta 120 segundos de
+antigüedad. Si una instancia reciente no informa el dato, se muestra «Sin datos».
+No representa disponibilidad ni garantiza que no existan otras instancias.
+
+Con telemetría habilitada, el middleware HTTP asigna `x-trace-id` y `x-request-id`
+y encola las respuestas 5xx con método, ruta declarada sin parámetros concretos,
+estado y duración; no registra cuerpos ni cadenas de consulta. Las rutas de
+ingesta y monitorización están excluidas para evitar recursión. Las respuestas
+correctas se incluyen en las métricas agregadas, sin guardar un evento por cada petición.
+
+La escritura usa Firebase Admin y la base de datos Firestore predeterminada del
+proyecto. Requiere que Firestore y los permisos IAM estén configurados; antes de
+habilitarla se deben denegar accesos directos de clientes a las colecciones de
+monitorización y configurar la política TTL de Firestore en `expiresAt` para
+`monitoringEvents`. El código asigna 14 días a DEBUG/INFO y 30 a WARN/ERROR, pero
+Firestore no aplica TTL automáticamente sin dicha configuración. Los ajustes
+`TELEMETRY_QUEUE_MAX_ITEMS`, `TELEMETRY_BATCH_MAX_ITEMS`,
+`TELEMETRY_FLUSH_INTERVAL_MS`, `TELEMETRY_RETRY_MAX_ATTEMPTS` y
+`TELEMETRY_RETRY_BASE_DELAY_MS` controlan el recolector.
+
 ### Autenticación y usuarios
 
 Las cuentas de la aplicación usan credenciales propias, verificadas por la API; no se usa Firebase Authentication ni inicio de sesión de Google para identificar a los usuarios. Los perfiles y hashes de contraseña (scrypt con salt aleatorio) están en `authUsers`; los roles y permisos en `authRoles` y `authPermissions`; las sesiones y los tokens de recuperación se guardan como hashes en `authSessions` y `authPasswordResets`. No se añade una base SQL ni se modifica el almacenamiento de herramientas/taller. La carga existente de imágenes puede usar una identidad anónima de Firebase Storage según la configuración del bucket.

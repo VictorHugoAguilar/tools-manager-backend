@@ -56,7 +56,7 @@ function createTool(req, res) {
             });
         }
 
-        const tool = await create(validation.data);
+        const tool = await create(validation.data, req.authUser?.id);
         return res.status(201).json(tool);
     });
 }
@@ -72,7 +72,7 @@ function updateTool(req, res) {
             });
         }
 
-        const updatedTool = await update(req.params.id, validation.data);
+        const updatedTool = await update(req.params.id, validation.data, req.authUser?.id);
 
         if (!updatedTool) {
             return res.status(404).json({ message: "Tool not found" });
@@ -93,7 +93,7 @@ function updateToolState(req, res) {
             });
         }
 
-        const updatedTool = await updateState(req.params.id, validation.data.state);
+        const updatedTool = await updateState(req.params.id, validation.data.state, req.authUser?.id);
 
         if (!updatedTool) {
             return res.status(404).json({ message: "Tool not found" });
@@ -122,7 +122,8 @@ function uploadToolImage(req, res) {
         const uploadedImage = await uploadImageForTool(req.params.id, req.file);
         const updatedTool = await updateImageUrl(
             req.params.id,
-            uploadedImage.downloadUrl
+            uploadedImage.downloadUrl,
+            req.authUser?.id
         );
 
         if (previousImageUrl && previousImageUrl !== uploadedImage.downloadUrl) {
@@ -150,7 +151,7 @@ function deleteToolImage(req, res) {
 
         await deleteImageByUrl(tool.urlSrc);
 
-        const updatedTool = await updateImageUrl(req.params.id, "");
+        const updatedTool = await updateImageUrl(req.params.id, "", req.authUser?.id);
 
         return res.json({
             message: "Image deleted successfully",
@@ -161,7 +162,7 @@ function deleteToolImage(req, res) {
 
 function deleteTool(req, res) {
     return handleControllerError(res, async () => {
-        const deleted = await remove(req.params.id);
+        const deleted = await remove(req.params.id, req.authUser?.id);
 
         if (!deleted) {
             return res.status(404).json({ message: "Tool not found" });
@@ -176,6 +177,9 @@ async function handleControllerError(res, action) {
         return await action();
     } catch (error) {
         console.error(error);
+        if (error.statusCode === 503) {
+            return res.status(503).json({ message: error.message });
+        }
         return res.status(500).json({
             message: "Internal server error"
         });

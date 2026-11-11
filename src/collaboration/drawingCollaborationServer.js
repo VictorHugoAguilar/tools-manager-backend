@@ -2,6 +2,8 @@ require("dotenv").config();
 
 const { createHash } = require("node:crypto");
 const { getAdminDatabase } = require("../config/firebaseAdmin");
+const { TelemetryManager } = require("../telemetry/telemetry");
+const { createCollaborationTelemetry } = require("./collaborationTelemetry");
 const {
     parseRoomName,
     revalidateCollaborationContext,
@@ -121,6 +123,10 @@ async function startDrawingCollaborationServer() {
         );
     }
     const actorByRoom = new Map();
+    const telemetry = new TelemetryManager({ service: "websocket" });
+    const collaborationTelemetry = createCollaborationTelemetry(telemetry);
+    telemetry.heartbeat.setWebSocketStatsProvider(() => collaborationTelemetry.getStats());
+    telemetry.heartbeat.setWebSocketMetricHealthProvider(() => telemetry.webSocketMetrics.getHealth());
     const server = new Server({
         name: "drawing-collaboration",
         address: process.env.DRAWING_COLLAB_HOST || "0.0.0.0",
@@ -140,8 +146,14 @@ async function startDrawingCollaborationServer() {
             }
         },
         async onAuthenticate({ documentName, token, connectionConfig }) {
-            const session = await verifyCollaborationSession(token, documentName);
-            if (!session) throw new Error("La sesión colaborativa no es válida.");
+            let session;
+            try {
+                session = await verifyCollaborationSession(token, documentName);
+                if (!session) throw new Error("La sesión colaborativa no es válida.");
+            } catch (error) {
+                collaborationTelemetry.authenticationFailed();
+                throw error;
+            }
             // En onAuthenticate aún no existe la Connection: el modo lectura se
             // configura en connectionConfig y la sesión se devuelve como contexto.
             connectionConfig.readOnly = session.role === "Viewer";
@@ -154,6 +166,7 @@ async function startDrawingCollaborationServer() {
             return session;
         },
         async beforeHandleMessage({ documentName, context, connection, update }) {
+            collaborationTelemetry.updateReceived();
             if (update.byteLength > MAX_COLLABORATION_STATE_BYTES) {
                 throw new Error("La actualización colaborativa supera el tamaño permitido.");
             }
@@ -194,25 +207,40 @@ async function startDrawingCollaborationServer() {
         },
         async connected({ connection, context }) {
             attachAccessWatchers(connection, context);
+            collaborationTelemetry.connected(connection);
         },
         async onLoadDocument({ documentName, document }) {
-            const room = parseRoomName(documentName);
-            if (!room) throw new Error("La sala colaborativa no es válida.");
-            const loaded = await loadCollaborationDocument(room.documentId, room.pageId, document, Y);
-            return loaded.document;
+            try {
+                const room = parseRoomName(documentName);
+                if (!room) throw new Error("La sala colaborativa no es válida.");
+                const loaded = await loadCollaborationDocument(room.documentId, room.pageId, document, Y);
+                return loaded.document;
+            } catch (error) {
+                collaborationTelemetry.documentLoadFailed();
+                throw error;
+            }
         },
         async afterHandleMessage({ documentName, context }) {
             if (context?.userId) actorByRoom.set(documentName, context.userId);
         },
         async onStoreDocument({ documentName, document }) {
-            const room = parseRoomName(documentName);
-            if (!room) throw new Error("La sala colaborativa no es válida.");
-            const actorUserId = actorByRoom.get(documentName) || null;
-            await persistCollaborationDocument(room.documentId, room.pageId, document, Y, actorUserId);
-            actorByRoom.delete(documentName);
+            try {
+                const room = parseRoomName(documentName);
+                if (!room) throw new Error("La sala colaborativa no es válida.");
+                const actorUserId = actorByRoom.get(documentName) || null;
+                await persistCollaborationDocument(room.documentId, room.pageId, document, Y, actorUserId);
+                actorByRoom.delete(documentName);
+            } catch (error) {
+                collaborationTelemetry.documentStoreFailed();
+                throw error;
+            }
+        },
+        async onDestroy() {
+            telemetry.stop();
         }
     });
     await server.listen();
+    telemetry.start();
     console.log(`Drawing collaboration server listening on ${server.configuration.port}`);
     return server;
 }

@@ -1,4 +1,5 @@
 const { getAdminDatabase } = require("../config/firebaseAdmin");
+const { isRoleAuditEnabled, transactRolePermissions } = require("../audit/businessOutbox");
 
 const DEFAULT_ROLES = {
     admin: {
@@ -14,13 +15,25 @@ const DEFAULT_ROLES = {
         permissions: {
             "app:access": true
         }
+    },
+    super: {
+        name: "Super Usuario",
+        permissions: {
+            "app:access": true,
+            "users:manage": true,
+            "roles:manage": true,
+            "monitoring:app": true,
+            "tracing:app": true
+        }
     }
 };
 
 const PERMISSIONS = {
     "app:access": "Acceder a las funciones de la aplicación",
     "users:manage": "Consultar y administrar usuarios",
-    "roles:manage": "Consultar y administrar permisos por rol"
+    "roles:manage": "Consultar y administrar permisos por rol",
+    "monitoring:app": "Acceder a las funciones de monitoreo",
+    "tracing:app": "Acceder a las funciones de trazabilidad"
 };
 
 function getProfilesRef() {
@@ -51,6 +64,14 @@ async function initializeAuthData() {
 
     if (Object.keys(updates).length) {
         await getAdminDatabase().ref().update(updates);
+    }
+
+    if (permissionsSnapshot.exists()) {
+        await Promise.all(["monitoring:app", "tracing:app"].map((id) =>
+            getPermissionsRef().child(id).transaction((current) =>
+                current === null ? { description: PERMISSIONS[id] } : undefined
+            )
+        ));
     }
 }
 
@@ -352,24 +373,44 @@ async function listPermissions() {
     }));
 }
 
-async function updateRolePermissions(roleId, permissionIds) {
-    if (!Array.isArray(permissionIds) || permissionIds.some((id) => !PERMISSIONS[id])) {
+async function updateRolePermissions(roleId, permissionIds, actorId) {
+    if (!Array.isArray(permissionIds) || permissionIds.some((id) => !Object.hasOwn(PERMISSIONS, id))) {
         throw Object.assign(new Error("La lista incluye permisos no válidos."), { statusCode: 400 });
     }
 
+    const permissions = Object.fromEntries(permissionIds.map((id) => [id, true]));
+    const checkAdminPermissions = () => {
+        if (roleId === "admin" && (
+            !permissionIds.includes("app:access") ||
+            !permissionIds.includes("users:manage") ||
+            !permissionIds.includes("roles:manage")
+        )) {
+            throw Object.assign(new Error("El rol administrador debe conservar acceso a la aplicación y su gestión."), { statusCode: 409 });
+        }
+    };
+    if (isRoleAuditEnabled()) {
+        return transactRolePermissions({
+            id: roleId, actorId,
+            change: (role) => {
+                if (!role) return null;
+                checkAdminPermissions();
+                return {
+                    value: { ...role, permissions },
+                    result: { id: roleId, name: role.name, permissions: permissionIds },
+                    auditDetails: {
+                        permissionsBefore: JSON.stringify(Object.keys(role.permissions || {})
+                            .filter((key) => role.permissions[key]).sort()),
+                        permissionsAfter: JSON.stringify(Object.keys(permissions).sort())
+                    }
+                };
+            }
+        });
+    }
     const roleRef = getRolesRef().child(roleId);
     const snapshot = await roleRef.get();
     const role = snapshot.val();
     if (!role) return null;
-    if (roleId === "admin" && (
-        !permissionIds.includes("app:access") ||
-        !permissionIds.includes("users:manage") ||
-        !permissionIds.includes("roles:manage")
-    )) {
-        throw Object.assign(new Error("El rol administrador debe conservar acceso a la aplicación y su gestión."), { statusCode: 409 });
-    }
-
-    const permissions = Object.fromEntries(permissionIds.map((id) => [id, true]));
+    checkAdminPermissions();
     await roleRef.update({ permissions });
     return { id: roleId, name: role.name, permissions: permissionIds };
 }

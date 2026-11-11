@@ -14,6 +14,9 @@ const { adminRouter } = require("./routes/adminRoutes");
 const { taskBoardRouter } = require("./routes/taskBoardRoutes");
 const { todoListRouter } = require("./routes/todoListRoutes");
 const { drawingRouter } = require("./routes/drawingRoutes");
+const { telemetryRouter } = require("./routes/telemetryRoutes");
+const { monitoringRouter } = require("./routes/monitoringRoutes");
+const { createTelemetryMiddleware } = require("./middleware/telemetryMiddleware");
 const {
     requireAuthenticated,
     requireCsrf,
@@ -32,9 +35,12 @@ function createApp() {
 
     app.use(cors({
         origin: (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin)),
-        credentials: true
+        credentials: true,
+        exposedHeaders: ["x-trace-id", "x-request-id"]
     }));
 
+    app.use(createTelemetryMiddleware());
+    app.use("/api/telemetry", telemetryRouter);
     app.use(express.json({ limit: "1mb" }));
 
     app.get("/", (_req, res) => {
@@ -83,6 +89,7 @@ function createApp() {
     app.use("/api/auth", authRouter);
     app.use("/api/users", userRouter);
     app.use("/api/admin", adminRouter);
+    app.use("/api/monitoring", monitoringRouter);
 
     const protectApplicationApi = [
         requireAuthenticated,

@@ -208,7 +208,7 @@ const userController = {
     roles: handle(async (_req, res) => res.json({ roles: await listRoles() })),
     permissions: handle(async (_req, res) => res.json({ permissions: await listPermissions() })),
     updatePermissions: handle(async (req, res) => {
-        const role = await updateRolePermissions(req.params.roleId, req.body?.permissions);
+        const role = await updateRolePermissions(req.params.roleId, req.body?.permissions, req.authUser.id);
         return role ? res.json({ role }) : res.status(404).json({ message: "Rol no encontrado." });
     })
 };

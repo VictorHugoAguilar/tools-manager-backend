@@ -8,6 +8,7 @@ const {
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
 const { deleteImageByUrl } = require("./toolImageStorageService");
+const { isToolAuditEnabled, transactTool } = require("../audit/businessOutbox");
 
 function normalizeText(value) {
     return String(value).trim().toLowerCase();
@@ -186,7 +187,7 @@ async function findById(id) {
     };
 }
 
-async function create(toolData) {
+async function create(toolData, actorId) {
     const database = getDatabaseInstance();
     const toolsRef = ref(database, "tools");
     const newToolRef = push(toolsRef);
@@ -195,15 +196,30 @@ async function create(toolData) {
         ...toolData
     };
 
+    if (isToolAuditEnabled()) {
+        const created = await transactTool({
+            id: newToolRef.key, actorId, action: "tool.created",
+            change: (current) => current ? null : { value: newTool, result: newTool }
+        });
+        if (!created) throw new Error("No se pudo crear la herramienta auditada.");
+        return created;
+    }
     await set(newToolRef, newTool);
     return newTool;
 }
 
-async function updateTool(id, toolData) {
+async function updateTool(id, toolData, actorId) {
     if (!id || typeof id !== "string") {
         return null;
     }
 
+    if (isToolAuditEnabled()) {
+        const updatedTool = { ...toolData, id };
+        return transactTool({
+            id, actorId, action: "tool.updated",
+            change: (current) => current ? { value: updatedTool, result: updatedTool } : null
+        });
+    }
     const existingTool = await findById(id);
 
     if (!existingTool) {
@@ -220,11 +236,21 @@ async function updateTool(id, toolData) {
     return updatedTool;
 }
 
-async function updateState(id, state) {
+async function updateState(id, state, actorId) {
     if (!id || typeof id !== "string") {
         return null;
     }
 
+    if (isToolAuditEnabled()) {
+        return transactTool({
+            id, actorId, action: "tool.state.updated",
+            change: (current) => {
+                if (!current) return null;
+                const updated = { ...current, id, state };
+                return { value: updated, result: updated };
+            }
+        });
+    }
     const existingTool = await findById(id);
 
     if (!existingTool) {
@@ -240,11 +266,21 @@ async function updateState(id, state) {
     };
 }
 
-async function updateImageUrl(id, urlSrc) {
+async function updateImageUrl(id, urlSrc, actorId) {
     if (!id || typeof id !== "string") {
         return null;
     }
 
+    if (isToolAuditEnabled()) {
+        return transactTool({
+            id, actorId, action: "tool.image.updated",
+            change: (current) => {
+                if (!current) return null;
+                const updated = { ...current, id, urlSrc };
+                return { value: updated, result: updated };
+            }
+        });
+    }
     const existingTool = await findById(id);
 
     if (!existingTool) {
@@ -260,11 +296,20 @@ async function updateImageUrl(id, urlSrc) {
     };
 }
 
-async function remove(id) {
+async function remove(id, actorId) {
     if (!id || typeof id !== "string") {
         return false;
     }
 
+    if (isToolAuditEnabled()) {
+        const removed = await transactTool({
+            id, actorId, action: "tool.deleted",
+            change: (current) => current ? { value: null, result: current } : null
+        });
+        if (!removed) return false;
+        await deleteImageByUrl(removed.urlSrc);
+        return true;
+    }
     const existingTool = await findById(id);
 
     if (!existingTool) {
