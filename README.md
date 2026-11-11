@@ -457,6 +457,10 @@ y fechas; si ese documento se elimina por TTL se debe iniciar una nueva búsqued
 consultar una traza concreta, y también audita el acceso. El botón «Ver traza»
 consulta todos sus eventos en el intervalo activo, sin aplicar los demás filtros;
 la secuencia se presenta en orden descendente de recepción, no como árbol de spans.
+Desde actividad reciente se utiliza el intervalo del resumen. El panel muestra
+los filtros realmente aplicados a los resultados y permite volver a la página
+anterior de eventos sin repetir la consulta; los cambios en el formulario solo
+se aplican al buscar de nuevo.
 
 `GET /api/monitoring/metrics` requiere `from` y `to` en el mismo formato UTC,
 un intervalo entre un minuto y siete días, `interval=1m|1h` y una de las parejas
