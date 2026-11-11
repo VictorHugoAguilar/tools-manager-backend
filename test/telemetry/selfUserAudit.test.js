@@ -30,7 +30,11 @@ function harness() {
         return {
             orderByKey() { return this; },
             limitToFirst() { return this; },
-            async get() { return { val: () => structuredClone(root.auditOutbox || {}) }; },
+            async get() { return { forEach: (callback) => {
+                for (const [key, value] of Object.entries(structuredClone(root.auditOutbox || {}))) {
+                    callback({ key, val: () => value });
+                }
+            } }; },
             child: (id) => ({ transaction: async (change) => {
                 const result = change(structuredClone(root.auditOutbox[id] || null));
                 if (result === undefined) return { committed: false };

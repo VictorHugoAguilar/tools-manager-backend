@@ -1,5 +1,6 @@
 const express = require("express");
 const { uploadImageFile } = require("../middleware/uploadMiddleware");
+const { storageReadTelemetry } = require("../middleware/storageReadTelemetry");
 const {
     addStorageProduct,
     createStorageBox,
@@ -16,9 +17,9 @@ const {
 
 const storageBoxRouter = express.Router();
 
-storageBoxRouter.get("/", getAllStorageBoxes);
-storageBoxRouter.get("/search", searchStorageProducts);
-storageBoxRouter.get("/:id", getStorageBoxById);
+storageBoxRouter.get("/", storageReadTelemetry("storage.boxes.viewed"), getAllStorageBoxes);
+storageBoxRouter.get("/search", storageReadTelemetry("storage.boxes.searched"), searchStorageProducts);
+storageBoxRouter.get("/:id", storageReadTelemetry("storage.box.viewed"), getStorageBoxById);
 storageBoxRouter.post("/", createStorageBox);
 storageBoxRouter.post("/:boxId/products", addStorageProduct);
 storageBoxRouter.post("/:id/image", uploadImageFile, uploadStorageBoxImage);

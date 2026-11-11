@@ -24,7 +24,7 @@ async function updateShelfConfig(req, res) {
             });
         }
 
-        const config = await updateShelfConfigInService(validation.data);
+        const config = await updateShelfConfigInService(validation.data, req.authUser?.id);
         return res.json(config);
     });
 }
@@ -40,8 +40,8 @@ async function handleControllerError(res, action) {
         }
 
         console.error(error);
-        return res.status(500).json({
-            message: "Internal server error"
+        return res.status(error.statusCode || 500).json({
+            message: error.statusCode ? error.message : "Internal server error"
         });
     }
 }
@@ -50,4 +50,3 @@ module.exports = {
     getShelfConfig,
     updateShelfConfig
 };
-

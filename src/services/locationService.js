@@ -6,6 +6,8 @@ const {
     set
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
+const { isCatalogAuditEnabled } = require("../audit/businessOutbox");
+const { createCatalogRecord, updateCatalogRecord, removeCatalogRecord } = require("../audit/catalogAudit");
 
 function serializeLocations(snapshotValue) {
     if (!snapshotValue) {
@@ -46,10 +48,11 @@ async function findById(id) {
     };
 }
 
-async function create(locationData) {
+async function create(locationData, actorId) {
     const database = getDatabaseInstance();
     const locationsRef = ref(database, "locations");
     const newLocationRef = push(locationsRef);
+    if (isCatalogAuditEnabled()) return createCatalogRecord("locations", newLocationRef.key, locationData, actorId);
     const location = {
         id: newLocationRef.key,
         ...locationData
@@ -59,7 +62,8 @@ async function create(locationData) {
     return location;
 }
 
-async function update(id, locationData) {
+async function update(id, locationData, actorId) {
+    if (isCatalogAuditEnabled()) return updateCatalogRecord("locations", id, locationData, actorId);
     const existing = await findById(id);
 
     if (!existing) {
@@ -76,7 +80,8 @@ async function update(id, locationData) {
     return location;
 }
 
-async function remove(id) {
+async function remove(id, actorId) {
+    if (isCatalogAuditEnabled()) return removeCatalogRecord("locations", id, actorId);
     const existing = await findById(id);
 
     if (!existing) {

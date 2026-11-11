@@ -6,6 +6,8 @@ const {
     set
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
+const { isCatalogAuditEnabled } = require("../audit/businessOutbox");
+const { createCatalogRecord, updateCatalogRecord, removeCatalogRecord } = require("../audit/catalogAudit");
 
 function serializeTechnicians(snapshotValue) {
     if (!snapshotValue) {
@@ -46,10 +48,11 @@ async function findById(id) {
     };
 }
 
-async function create(technicianData) {
+async function create(technicianData, actorId) {
     const database = getDatabaseInstance();
     const techniciansRef = ref(database, "technicians");
     const newTechnicianRef = push(techniciansRef);
+    if (isCatalogAuditEnabled()) return createCatalogRecord("technicians", newTechnicianRef.key, technicianData, actorId);
     const technician = {
         id: newTechnicianRef.key,
         ...technicianData
@@ -59,7 +62,8 @@ async function create(technicianData) {
     return technician;
 }
 
-async function update(id, technicianData) {
+async function update(id, technicianData, actorId) {
+    if (isCatalogAuditEnabled()) return updateCatalogRecord("technicians", id, technicianData, actorId);
     const existing = await findById(id);
 
     if (!existing) {
@@ -76,7 +80,8 @@ async function update(id, technicianData) {
     return technician;
 }
 
-async function remove(id) {
+async function remove(id, actorId) {
+    if (isCatalogAuditEnabled()) return removeCatalogRecord("technicians", id, actorId);
     const existing = await findById(id);
 
     if (!existing) {

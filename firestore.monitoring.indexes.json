@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "auditEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "auditScope", "order": "ASCENDING" },
+        { "fieldPath": "occurredAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "monitoringEvents",
       "queryScope": "COLLECTION",
       "fields": [

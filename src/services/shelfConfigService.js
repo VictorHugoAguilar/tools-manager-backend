@@ -1,5 +1,6 @@
 const { get, ref, set } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
+const { isStorageBoxAuditEnabled, transactStorageSettings } = require("../audit/businessOutbox");
 const {
     normalizeStoredShelfConfig
 } = require("../validators/shelfConfigValidator");
@@ -55,7 +56,17 @@ async function getShelfConfig() {
     );
 }
 
-async function updateShelfConfig(config) {
+async function updateShelfConfig(config, actorId) {
+    if (isStorageBoxAuditEnabled()) return transactStorageSettings({
+        id: "shelfConfig", actorId, action: "box.shelf-config.updated",
+        change: (_current, _entities, root) => {
+            const conflict = findOutOfBoundsBox(root.storageBoxes, config);
+            if (conflict) throw new ShelfConfigConflictError(
+                `No se puede guardar la configuración: la caja ${conflict.boxIdentifier} está fuera de los límites.`);
+            const value = { rows: config.rows, columns: config.columns };
+            return { value, result: value };
+        }
+    });
     const database = getDatabaseInstance();
     const storageBoxesSnapshot = await get(ref(database, "storageBoxes"));
     const storageBoxes = storageBoxesSnapshot.exists()

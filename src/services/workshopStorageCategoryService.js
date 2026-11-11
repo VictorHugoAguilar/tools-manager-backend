@@ -6,6 +6,7 @@ const {
     set
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
+const { isWorkshopStorageAuditEnabled, transactStorageSettings } = require("../audit/businessOutbox");
 
 const CATEGORY_PATH = "workshopStorageSettings/materialCategories";
 const DEFAULT_CATEGORIES = [
@@ -57,13 +58,31 @@ async function findAllMaterialCategories() {
     return serializeCategories(snapshot);
 }
 
-async function createMaterialCategory(value) {
+async function createMaterialCategory(value, actorId) {
     const name = normalizeCategoryName(value);
 
     if (!name || name.length > 100) {
         throw Object.assign(new Error("Category name must contain 1 to 100 characters"), {
             statusCode: 400
         });
+    }
+
+    if (isWorkshopStorageAuditEnabled()) {
+        const categoryRef = push(databaseRef(`${CATEGORY_PATH}/categories`));
+        return transactStorageSettings({ id: "materialCategories", actorId, action: "workshop.category.created",
+            change: (current) => {
+                const config = current || { initialized: true, categories: Object.fromEntries(
+                    DEFAULT_CATEGORIES.map(({ id, name: defaultName }) => [id, { name: defaultName }])) };
+                const categories = config.categories || {};
+                if (Object.values(categories).some((category) =>
+                    category.name.localeCompare(name, "es", { sensitivity: "base" }) === 0)) {
+                    throw Object.assign(new Error("A material category with that name already exists"), { statusCode: 409 });
+                }
+                if (Object.hasOwn(categories, categoryRef.key)) throw Object.assign(new Error("Category already exists"), { statusCode: 409 });
+                categories[categoryRef.key] = { name };
+                return { value: { ...config, categories }, result: { id: categoryRef.key, name },
+                    auditDetails: { categoryId: categoryRef.key } };
+            } });
     }
 
     const configurationRef = await ensureCategoryConfig();
@@ -85,11 +104,23 @@ async function createMaterialCategory(value) {
     return category;
 }
 
-async function deleteMaterialCategory(id) {
+async function deleteMaterialCategory(id, actorId) {
     if (!id || typeof id !== "string") {
         return false;
     }
 
+    if (isWorkshopStorageAuditEnabled()) {
+        if (/[.#$/\[\]\u0000-\u001f\u007f]/.test(id)) throw Object.assign(new Error("Invalid category id"), { statusCode: 400 });
+        return Boolean(await transactStorageSettings({ id: "materialCategories", actorId, action: "workshop.category.deleted",
+            change: (current) => {
+                const config = current || { initialized: true, categories: Object.fromEntries(
+                    DEFAULT_CATEGORIES.map(({ id: defaultId, name }) => [defaultId, { name }])) };
+                const categories = config.categories || {};
+                if (!Object.hasOwn(categories, id)) return null;
+                delete categories[id];
+                return { value: { ...config, categories }, result: true, auditDetails: { categoryId: id } };
+            } }));
+    }
     await ensureCategoryConfig();
     const categoryRef = databaseRef(`${CATEGORY_PATH}/categories/${id}`);
     const snapshot = await get(categoryRef);

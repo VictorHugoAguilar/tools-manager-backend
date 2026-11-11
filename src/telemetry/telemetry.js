@@ -205,6 +205,44 @@ class TelemetryManager {
         if (this.enabled) this.httpMetrics.record(durationMs, statusCode);
     }
 
+    recordStorageRead({ eventName, actorId, traceId, requestId, durationMs, statusCode }) {
+        if (!this.enabled) return;
+        const routes = {
+            "storage.workshop.viewed": "/api/workshop-storage",
+            "storage.workshop.searched": "/api/workshop-storage/search",
+            "storage.workshop.categories.viewed": "/api/workshop-storage/categories",
+            "storage.boxes.viewed": "/api/storage-boxes",
+            "storage.box.viewed": "/api/storage-boxes/:id",
+            "storage.boxes.searched": "/api/storage-boxes/search",
+            "storage.shelf_config.viewed": "/api/shelf-config"
+        };
+        if (!Object.hasOwn(routes, eventName) || typeof actorId !== "string" || !actorId ||
+            typeof traceId !== "string" || !UUID.test(traceId) ||
+            typeof requestId !== "string" || !UUID.test(requestId) ||
+            typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0 ||
+            !Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599) {
+            throw new Error("Evento de lectura de almacenamiento no válido.");
+        }
+        const now = new Date().toISOString();
+        this.queue.enqueue({
+            schemaVersion: 1,
+            eventId: randomUUID(),
+            occurredAt: now,
+            receivedAt: now,
+            service: "backend",
+            environment: this.environment,
+            instanceId: this.instanceId,
+            level: statusCode >= 500 ? "ERROR" : statusCode >= 400 ? "WARN" : "INFO",
+            category: "storage",
+            eventName,
+            actorId,
+            traceId,
+            requestId,
+            durationMs,
+            http: { method: "GET", route: routes[eventName], statusCode }
+        });
+    }
+
     recordWebSocketEvent(eventName, connectionId) {
         if (!this.enabled) return;
         const catalog = {

@@ -86,6 +86,87 @@ Las imagenes se suben a Firebase Storage en la carpeta `tools/<toolId>/`.
 
 ### Telemetría (base experimental, incompleta)
 
+#### Matriz de cobertura de monitorización y auditoría
+
+Esta matriz define el alcance para completar la instrumentación; **propuesto**
+no significa implementado. Las filas corresponden a las rutas y operaciones
+vigentes, incluidos procesos automáticos. Cuando se habilita telemetría, las
+peticiones HTTP terminadas se cuentan en métricas agregadas y los 5xx generan
+`http.request.failed`, salvo las rutas de telemetría y monitorización, que se
+excluyen para evitar bucles. Eso no equivale a auditoría de negocio ni a
+trazabilidad completa.
+
+Políticas acordadas: lecturas específicas solo para búsquedas y accesos
+sensibles, además de métricas agregadas; preferencias personales y marcas de
+lectura de notificaciones no requieren auditoría durable; en colaboración se
+auditan hitos y cambios de acceso, no cada actualización WebSocket.
+
+| Ámbito y operaciones | Cobertura actual | Objetivo y nombres de eventos propuestos |
+|---|---|---|
+| Herramientas: alta, edición, estado, referencia de imagen y eliminación | Auditoría experimental `AUDIT_TOOLS_ENABLED`; `tool.created`, `tool.updated`, `tool.state.updated`, `tool.image.updated`, `tool.deleted`. | Mantener eventos existentes; validar atomicidad, fallos y cambios concurrentes antes de activar. |
+| Reparaciones de herramientas: alta, edición y eliminación | Auditoría experimental `AUDIT_REPAIRS_ENABLED`: `repair.created`, `repair.updated`, `repair.deleted`. | Validar en Firebase y bajo concurrencia; los eventos contienen identificadores de reparación y herramienta, nunca descripción o contenido. |
+| Herramientas y reparaciones: listados y detalle | Métricas HTTP y 5xx generales. | Agregados; si una búsqueda se instrumenta, `tools.search.completed` sin términos ni resultados. No registrar cada lectura de rutina. |
+| Técnicos, ubicaciones, tipos de herramientas y etiquetas: alta, edición y eliminación | Auditoría experimental `AUDIT_CATALOGS_ENABLED`: `technician.created/updated/deleted`, `location.created/updated/deleted`, `tool_type.created/updated/deleted` y `tag.created/updated/deleted`. | Validar en Firebase y bajo concurrencia. Los listados y detalles usan agregados. |
+| Taller: estanterías, niveles, organizadores, compartimentos y materiales | Auditoría experimental `AUDIT_WORKSHOP_STORAGE_ENABLED` para alta, edición, eliminación y referencia de imagen; eventos `workshop.<colección>.created/updated/deleted` y `workshop.materials.image.updated`. | Conservar nombres existentes y validar toda la cobertura, incluidas condiciones de carrera y limpieza de imágenes. |
+| Taller: categorías y lecturas | Categorías con auditoría experimental `workshop.category.created/deleted`; lecturas con `storage.workshop.viewed`, `storage.workshop.searched` y `storage.workshop.categories.viewed`. | Mantener las lecturas instrumentadas existentes y verificar que no contienen consulta ni resultados. |
+| Cajas, productos e imágenes | Auditoría experimental `AUDIT_STORAGE_BOXES_ENABLED`: `box.created/updated/deleted`, `box.image.updated`, `box.product.created/updated/deleted` y `box.product.image.updated`. | Validar atómicamente cada cambio y sus referencias; la conciliación física de imágenes queda pendiente. |
+| Cajas: configuración, listado, detalle y búsqueda | `box.shelf-config.updated` experimental; telemetría `storage.boxes.viewed`, `storage.box.viewed`, `storage.boxes.searched` y `storage.shelf_config.viewed`. | Mantener cobertura existente; no registrar términos ni identificadores en rutas de telemetría. |
+| Tablero: columnas, orden, tareas, movimientos y etiquetas | Sin auditoría durable específica. | Auditoría `task_board.column.created/updated/deleted/reordered`, `task_board.task.created/updated/deleted/moved` y `task_board.label.created/updated/deleted`. Lectura del tablero: agregados. |
+| Tablero: comentarios y adjuntos | Sin auditoría durable específica. | Auditoría `task_board.comment.created/updated/deleted` y `task_board.attachment.created/deleted`; solo identificadores, nunca texto ni nombres o URL de archivos. |
+| Lista de tareas: proyectos, orden, archivo y miembros | Sin auditoría durable específica. | Auditoría `todo.project.created/updated/deleted/archived/reordered` y `todo.member.added/removed`. Lecturas: agregados; búsquedas selectivas sin términos. |
+| Lista de tareas: secciones, tareas y subtareas | Sin auditoría durable específica. | Auditoría `todo.section.created/updated/deleted/reordered`, `todo.item.created/updated/deleted/completed/reopened/archived/importance.updated/priority.updated/moved/reordered/duplicated` y `todo.child.created/updated/deleted`. Los alias de proyectos deben producir el mismo evento. |
+| Lista de tareas: etiquetas, comentarios, adjuntos y recordatorios | Sin auditoría durable específica. | Auditoría `todo.label.created/updated/deleted`, `todo.comment.created/updated/deleted`, `todo.attachment.created/deleted` y `todo.reminder.created/updated/deleted`. No guardar contenido, texto, nombres ni URL. |
+| Lista de tareas: recurrencia, envío de recordatorios y notificaciones | Sin auditoría durable específica; existen procesos automáticos. | Diseñar eventos idempotentes `todo.recurrence.created` y `todo.reminder.delivered` para cambios de negocio confirmados por el sistema; separar fallos de entrega como telemetría `todo.reminder.delivery.failed`. Lectura de notificaciones y marca de leída: agregados, sin auditoría durable. El actor automático debe ser una identidad de sistema explícita, no un usuario inventado. |
+| Dibujar: documentos y páginas | Sin auditoría durable específica. | Auditoría `drawing.document.created/updated/deleted/duplicated/archived/restored`, `drawing.page.created/updated/deleted/duplicated/reordered` y `drawing.version.restored`. Las consultas usan agregados y los accesos sensibles seleccionados telemetría. |
+| Dibujar: snapshots, versiones, preferencias y recursos | Sin auditoría durable específica. | Auditar hitos de versión y carga/eliminación de recursos con `drawing.version.created` y `drawing.asset.created/deleted`, sin contenido ni URL. No auditar cada actualización colaborativa ni cada guardado automático como cambio individual; medir actividad agregada. Preferencias personales: agregados. Distinguir restauración explícita de guardados automáticos. |
+| Dibujar: invitaciones, permisos y enlaces | Sin auditoría durable específica. | Auditoría `drawing.invitation.created/accepted/declined/cancelled`, `drawing.permission.updated/revoked` y `drawing.share_link.created/revoked`; identificar recurso y actor, sin tokens ni enlaces. Consultas y resolución de enlaces: telemetría selectiva sin secretos. |
+| WebSocket de colaboración | Eventos experimentales de apertura, cierre, fallo de autenticación y carga/escritura; agregados de aperturas, cierres y actualizaciones. | Conservar los eventos existentes, añadir solo medidas fiables pendientes y probar correlación sin guardar mensajes, contenido o tokens. |
+| Identidad: registro, reversión, recuperación, perfil y usuarios administrados | Auditoría experimental con banderas independientes para registro, recuperación, perfil y administración de usuarios; ver descripción de banderas más abajo. | Verificar cobertura de cada ruta y concurrencia. Registrar identificadores y tipos de acción, no contraseñas, hashes, tokens, nombres, correos ni imágenes. El actor de recuperación representa posesión del enlace, no una sesión. |
+| Identidad: inicio/cierre de sesión, solicitudes de recuperación y autorizaciones denegadas | Métricas HTTP generales; sin catálogo específico de estos eventos en backend. | Telemetría selectiva `auth.login.succeeded/failed`, `auth.logout.completed`, `auth.password_reset.requested` y `auth.access.denied`; no registrar credenciales ni identidad no verificada. No convertir resultados de solicitud de recuperación en una señal de existencia de cuenta. |
+| Roles y permisos | `role.permissions.updated` con auditoría experimental `AUDIT_ROLES_ENABLED`, incluyendo permisos efectivos anteriores y posteriores. Lecturas con agregados. | Mantener y probar protección, concurrencia y ausencia de datos de perfil. |
+| Monitorización e historiales | Accesos a overview, eventos, trazas, métricas, servicios, estado de outbox e historiales se escriben directamente en `auditEvents` antes de leer; requieren `monitoring:app`. | Mantener el fallo cerrado, auditar nuevas consultas sensibles y probar autorización. No instrumentar esas rutas con la telemetría HTTP general. |
+| Frontend y transporte de telemetría | Captura experimental de `frontend.runtime.error`, `frontend.api.request.failed` y `frontend.route.changed`; el endpoint valida un catálogo limitado. | Completar medidas reales de rendimiento y correlación; no asumir que las respuestas `202` ya están persistidas. Los eventos aceptados pero aún sin productor no cuentan como implementados. |
+
+En los nombres propuestos, `created/updated/deleted` representa eventos
+separados, no un nombre literal con barras. La implementación posterior debe
+concretar el catálogo y su validación por acción, incluyendo actores y recursos
+secundarios necesarios. Los eventos de auditoría actuales no llevan todos un
+entorno ni un `traceId`; no atribuirlos retroactivamente sin verificar su origen.
+El historial de almacenamiento se consulta en la base compartida y no filtra por
+entorno. La separación real de entornos y el origen de registros históricos
+siguen pendientes de comprobarse antes de ampliar su exposición o activación.
+
+Para las lecturas sensibles pendientes se propone `admin.users.accessed`,
+`admin.roles.accessed`, `drawing.permissions.accessed`,
+`drawing.invitations.accessed` y `drawing.share_link.resolved`; estos son
+eventos de telemetría, no auditorías durables. Deben identificar únicamente el
+tipo de operación, resultado y correlación disponible, sin contenido ni
+identificadores enviados por una persona no autenticada. Los accesos de
+monitorización son la excepción: su registro durable previo a la lectura ya
+está implementado. Las búsquedas específicas futuras se catalogarán por
+funcionalidad y no almacenarán texto ni resultados.
+
+El sobre previsto de auditoría contiene `schemaVersion`, `eventId`, `action`,
+`actorId`, `targetId` y `occurredAt`, más identificadores secundarios
+estrictamente necesarios y validados por acción. La futura extensión para
+entorno y correlación deberá ser compatible con eventos ya pendientes y con el
+publicador, y no modificará los registros históricos sin origen comprobado.
+Las operaciones automáticas necesitan un actor de sistema identificable y
+separado de usuarios; los intentos sin identidad verificada no deben atribuirse
+a una cuenta. En telemetría se utiliza el contrato versionado existente,
+con `service`, `environment`, nivel, tiempos y correlación cuando estén
+disponibles; rutas normalizadas y atributos deben proceder de listas permitidas.
+
+**Criterios de prueba por fila:** éxito y resultado previsto; ausencia de
+secretos y contenido; autorización y denegación cuando corresponda; errores y
+telemetría desactivada. Para auditoría, añadir pruebas de fallo de transacción
+sin cambio ni evento, reintento, idempotencia, concurrencia y publicación tras
+caída. Para procesos automáticos, probar identidad de sistema y ejecución
+duplicada. Para archivos, probar también carreras y reconciliación con Storage.
+Las suites existentes `test/telemetry`, `test/services`, `test/auth` y
+`test/controllers` cubren partes de estos casos con dobles; las filas propuestas
+necesitan pruebas propias y validación con Firebase emulado o real.
+
 La ingesta y la cola de eventos de frontend están desactivadas por defecto mediante
 `TELEMETRY_ENABLED=false`. El dashboard es preliminar: faltan la instrumentación
 completa de la aplicación y métricas de frontend y WebSocket completas.
@@ -103,7 +184,30 @@ eventos incluyen identificadores, acción y fecha, pero no nombres, imágenes ni
 contenido de la herramienta. El proceso backend publica la outbox en Firestore
 `auditEvents` cada cinco segundos y elimina cada entrada solo después de
 confirmar la escritura; reintentos tras un fallo son idempotentes. Si una entrada
-está dañada o entra en conflicto, se conserva y se registra el error.
+está dañada o entra en conflicto, se conserva y se registra el error. El
+publicador sigue con las demás entradas del lote y recorre la cola por páginas
+acotadas, volviendo al principio para reintentar las bloqueadas. Un fallo de
+conexión interrumpe el lote y se reintenta; el cursor es local y se reinicia al
+reiniciar el proceso. El orden de claves no es cronológico. Una comprobación
+exitosa puede corresponder solo a una página y no demuestra que la cola entera
+esté libre de entradas bloqueadas.
+
+`AUDIT_REPAIRS_ENABLED=true` habilita experimentalmente la auditoría de altas,
+ediciones y eliminaciones de reparaciones. El cambio y el evento se confirman
+en la misma transacción; alta y edición comprueban de nuevo la herramienta y el
+técnico dentro de ella. Los eventos incluyen identificadores, pero no nombres,
+descripciones, costes ni observaciones.
+Todos los procesos publicadores deben ejecutar una versión compatible con
+`repair.*` antes de activar la bandera: los publicadores antiguos no reconocen
+el nuevo campo `toolId` y conservarán esos eventos como inválidos.
+
+`AUDIT_CATALOGS_ENABLED=true` habilita experimentalmente la auditoría de altas,
+ediciones y eliminaciones de técnicos, ubicaciones, tipos de herramientas y
+etiquetas. El cambio y el evento se confirman juntos; los eventos contienen
+identificadores y acción, pero no nombres ni contenido. La creación de una
+etiqueta duplicada devuelve la existente y una edición con nombre duplicado
+devuelve conflicto, sin emitir eventos para esos casos. No habilitar antes de
+validar las transacciones en Firebase y el aislamiento de entornos.
 
 La auditoría experimental de cambios de permisos por rol se activa por separado
 con `AUDIT_ROLES_ENABLED=true` (por defecto `false`). La modificación de
@@ -144,9 +248,9 @@ Realtime Database. El identificador de actor es el de la cuenta recuperada y
 representa el uso de un enlace válido, no una sesión autenticada. No se
 almacenan en la auditoría ni el token, ni su hash, ni la contraseña.
 
-El publicador se ejecuta cuando cualquiera de las seis banderas está activa y
+El publicador se ejecuta cuando cualquiera de las diez banderas está activa y
 procesa toda la outbox, con independencia del tipo de evento. Al desactivar
-las seis banderas se detiene el publicador; las entradas pendientes permanecen en
+las diez banderas se detiene el publicador; las entradas pendientes permanecen en
 Realtime Database y se reanudan al volver a habilitar al menos una bandera.
 El panel consulta `GET /api/monitoring/audit-status`, protegido por
 `monitoring:app` y auditado antes de leer la outbox. Muestra el número de
@@ -159,6 +263,38 @@ otras instancias. Los contadores y fechas locales se reinician al reiniciar el
 proceso. Una consulta fallida se muestra como error, no como cola vacía.
 Una entrada aún pendiente en Realtime Database podría haberse publicado ya en
 Firestore si falló la confirmación de su eliminación de la outbox.
+
+Con `TELEMETRY_ENABLED=true`, las lecturas y búsquedas de almacenamiento del
+taller y de cajas generan eventos de monitorización con ruta normalizada,
+estado, duración, actor y correlación de la petición. No registran términos de
+búsqueda ni identificadores de cajas en la ruta. Estos eventos usan la cola de
+telemetría y pueden perderse: no constituyen una auditoría durable. La
+instrumentación de lecturas es independiente de la auditoría de cambios.
+
+`AUDIT_WORKSHOP_STORAGE_ENABLED=true` activa la auditoría
+experimental para altas, ediciones y eliminaciones de estanterías, niveles,
+organizadores, compartimentos, materiales y categorías, así como cambios de
+referencia de imagen de material. `AUDIT_STORAGE_BOXES_ENABLED=true` habilita
+por separado la auditoría de cajas, productos, referencias de imágenes y la
+configuración de estantes. Cada cambio y evento se confirman juntos en la raíz
+de Realtime Database. No cubren otros servicios como etiquetas. Con estas
+opciones activas, las imágenes antiguas no se eliminan automáticamente, y las
+cargas fallidas pueden dejar objetos huérfanos: todavía falta una conciliación
+segura con Storage.
+
+Las páginas de almacenamiento permiten consultar los últimos 25 cambios
+publicados, solo a usuarios con `monitoring:app`. El acceso al historial se
+audita en Firestore antes de leerlo. Los eventos pendientes en la outbox,
+los anteriores a la introducción de `auditScope` y los cambios realizados con
+auditoría desactivada no aparecen. El historial corresponde a toda la base
+compartida y no está aislado por entorno; tampoco incluye lecturas, que usan la
+telemetría no durable. La consulta requiere desplegar el índice `auditEvents`
+definido en `firestore.monitoring.indexes.json`; un fallo de consulta se muestra
+explícitamente y no implica un historial vacío.
+El índice de historial utiliza la colección `auditEvents`, `auditScope`
+ascendente y `occurredAt` descendente; Firestore añade `__name__` descendente.
+Debe estar habilitado en el proyecto utilizado por el backend, no solo definido
+en el archivo local.
 
 Esta opción mantiene las rutas actuales, pero cada transacción afecta a la raíz
 completa y puede entrar en conflicto con escrituras de otras funcionalidades.

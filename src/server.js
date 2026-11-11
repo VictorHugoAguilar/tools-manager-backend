@@ -7,7 +7,8 @@ const { telemetry } = require("./telemetry/telemetry");
 const { auditWorker } = require("./audit/outboxWorker");
 const {
     isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
-    isRegistrationAuditEnabled
+    isRegistrationAuditEnabled, isWorkshopStorageAuditEnabled, isStorageBoxAuditEnabled, isRepairAuditEnabled,
+    isCatalogAuditEnabled
 } = require("./audit/businessOutbox");
 
 const PORT = process.env.PORT || 3000;
@@ -20,7 +21,9 @@ async function startServer() {
         return app.listen(PORT, () => {
             telemetry.start();
             if (isToolAuditEnabled() || isRoleAuditEnabled() || isUserAuditEnabled() ||
-                isSelfUserAuditEnabled() || isRecoveryAuditEnabled() || isRegistrationAuditEnabled()) {
+                isSelfUserAuditEnabled() || isRecoveryAuditEnabled() || isRegistrationAuditEnabled() ||
+                isWorkshopStorageAuditEnabled() || isStorageBoxAuditEnabled() || isRepairAuditEnabled() ||
+                isCatalogAuditEnabled()) {
                 auditWorker.start();
             }
             console.log(`Server running on http://localhost:${PORT}`);

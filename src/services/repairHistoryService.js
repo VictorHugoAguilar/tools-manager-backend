@@ -6,6 +6,19 @@ const {
     set
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
+const { isRepairAuditEnabled, transactRepair } = require("../audit/businessOutbox");
+
+function auditedRepair(root, toolId, id, repairData) {
+    if (!Object.hasOwn(root.tools || {}, toolId)) {
+        throw Object.assign(new Error("Tool not found"), { statusCode: 404 });
+    }
+    const technician = Object.hasOwn(root.technicians || {}, repairData.technicianId)
+        ? root.technicians[repairData.technicianId] : null;
+    if (!technician) {
+        throw Object.assign(new Error("technicianId does not reference an existing technician"), { statusCode: 400 });
+    }
+    return { id, toolId, ...repairData, technicianName: technician.name };
+}
 
 function sortRepairs(repairs) {
     return repairs.sort((left, right) => right.entryDate.localeCompare(left.entryDate));
@@ -54,10 +67,18 @@ async function findById(toolId, repairId) {
     };
 }
 
-async function create(toolId, repairData) {
+async function create(toolId, repairData, actorId) {
     const database = getDatabaseInstance();
     const repairsRef = ref(database, `toolRepairs/${toolId}`);
     const newRepairRef = push(repairsRef);
+    if (isRepairAuditEnabled()) return transactRepair({
+        id: newRepairRef.key, toolId, actorId, action: "repair.created",
+        change: (existing, _repairs, root) => {
+            if (existing) throw Object.assign(new Error("Repair already exists"), { statusCode: 409 });
+            const repair = auditedRepair(root, toolId, newRepairRef.key, repairData);
+            return { value: repair, result: repair };
+        }
+    });
     const repair = {
         id: newRepairRef.key,
         toolId,
@@ -68,7 +89,15 @@ async function create(toolId, repairData) {
     return repair;
 }
 
-async function update(toolId, repairId, repairData) {
+async function update(toolId, repairId, repairData, actorId) {
+    if (isRepairAuditEnabled()) return transactRepair({
+        id: repairId, toolId, actorId, action: "repair.updated",
+        change: (existing, _repairs, root) => {
+            if (!existing) return null;
+            const repair = auditedRepair(root, toolId, repairId, repairData);
+            return { value: repair, result: repair };
+        }
+    });
     const existing = await findById(toolId, repairId);
 
     if (!existing) {
@@ -86,7 +115,11 @@ async function update(toolId, repairId, repairData) {
     return repair;
 }
 
-async function remove(toolId, repairId) {
+async function remove(toolId, repairId, actorId) {
+    if (isRepairAuditEnabled()) return Boolean(await transactRepair({
+        id: repairId, toolId, actorId, action: "repair.deleted",
+        change: (existing) => existing ? { value: null, result: true } : null
+    }));
     const existing = await findById(toolId, repairId);
 
     if (!existing) {

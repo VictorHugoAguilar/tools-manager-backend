@@ -31,7 +31,7 @@ function createLocation(req, res) {
             });
         }
 
-        const location = await locationService.create(validation.data);
+        const location = await locationService.create(validation.data, req.authUser?.id);
         return res.status(201).json(location);
     });
 }
@@ -47,7 +47,7 @@ function updateLocation(req, res) {
             });
         }
 
-        const location = await locationService.update(req.params.id, validation.data);
+        const location = await locationService.update(req.params.id, validation.data, req.authUser?.id);
 
         if (!location) {
             return res.status(404).json({ message: "Location not found" });
@@ -59,7 +59,7 @@ function updateLocation(req, res) {
 
 function deleteLocation(req, res) {
     return handleControllerError(res, async () => {
-        const deleted = await locationService.remove(req.params.id);
+        const deleted = await locationService.remove(req.params.id, req.authUser?.id);
 
         if (!deleted) {
             return res.status(404).json({ message: "Location not found" });
@@ -74,8 +74,8 @@ async function handleControllerError(res, action) {
         return await action();
     } catch (error) {
         console.error(error);
-        return res.status(500).json({
-            message: "Internal server error"
+        return res.status(error.statusCode || 500).json({
+            message: error.statusCode ? error.message : "Internal server error"
         });
     }
 }

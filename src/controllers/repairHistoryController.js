@@ -57,7 +57,7 @@ function createToolRepair(req, res) {
         const repair = await repairHistoryService.create(req.params.toolId, {
             ...validation.data,
             technicianName: technician.name
-        });
+        }, req.authUser?.id);
 
         return res.status(201).json(repair);
     });
@@ -92,7 +92,7 @@ function updateToolRepair(req, res) {
         const repair = await repairHistoryService.update(req.params.toolId, req.params.repairId, {
             ...validation.data,
             technicianName: technician.name
-        });
+        }, req.authUser?.id);
 
         if (!repair) {
             return res.status(404).json({ message: "Repair record not found" });
@@ -104,7 +104,7 @@ function updateToolRepair(req, res) {
 
 function deleteToolRepair(req, res) {
     return handleControllerError(res, async () => {
-        const deleted = await repairHistoryService.remove(req.params.toolId, req.params.repairId);
+        const deleted = await repairHistoryService.remove(req.params.toolId, req.params.repairId, req.authUser?.id);
 
         if (!deleted) {
             return res.status(404).json({ message: "Repair record not found" });
@@ -119,8 +119,8 @@ async function handleControllerError(res, action) {
         return await action();
     } catch (error) {
         console.error(error);
-        return res.status(500).json({
-            message: "Internal server error"
+        return res.status(error.statusCode || 500).json({
+            message: error.statusCode ? error.message : "Internal server error"
         });
     }
 }

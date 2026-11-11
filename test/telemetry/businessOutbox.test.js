@@ -25,7 +25,11 @@ function database(initial = {}) {
             return {
                 orderByKey() { return this; },
                 limitToFirst() { return this; },
-                async get() { return { val: () => structuredClone(data.auditOutbox || {}) }; },
+                async get() { return { forEach: (callback) => {
+                    for (const [key, value] of Object.entries(structuredClone(data.auditOutbox || {}))) {
+                        callback({ key, val: () => value });
+                    }
+                } }; },
                 child(id) { return { transaction: async (change) => {
                     if (failDelete) throw new Error("RTDB delete unavailable");
                     const next = change(structuredClone(data.auditOutbox?.[id] || null));
@@ -190,7 +194,7 @@ test("outbox acknowledgement retries an initially uncached null before deleting"
     const db = { ref: () => ({
         orderByKey() { return this; },
         limitToFirst() { return this; },
-        async get() { return { val: () => ({ event }) }; },
+        async get() { return { forEach: (callback) => callback({ key: "event", val: () => event }) }; },
         child: () => ({ transaction: async (change) => {
             assert.equal(change(null), null);
             assert.equal(change(event), null);

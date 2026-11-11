@@ -6,6 +6,8 @@ const {
     set
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
+const { isCatalogAuditEnabled, transactCatalog } = require("../audit/businessOutbox");
+const { removeCatalogRecord } = require("../audit/catalogAudit");
 
 function normalizeName(value) {
     return String(value ?? "").trim().toLowerCase();
@@ -61,7 +63,19 @@ async function findByName(name) {
     return tags.find((tag) => normalizeName(tag.name) === normalizedName) ?? null;
 }
 
-async function create(tagData) {
+async function create(tagData, actorId) {
+    if (isCatalogAuditEnabled()) {
+        const newTagRef = push(ref(getDatabaseInstance(), "tags"));
+        return transactCatalog({ id: newTagRef.key, actorId, collection: "tags", operation: "created",
+            change: (current, tags) => {
+                const name = normalizeName(tagData.name);
+                const duplicate = name && serializeTags(tags).find((tag) => normalizeName(tag.name) === name);
+                if (duplicate) return { unchanged: true, result: duplicate };
+                if (current) throw Object.assign(new Error("El registro ya existe."), { statusCode: 409 });
+                const value = { id: newTagRef.key, ...tagData };
+                return { value, result: value };
+            } });
+    }
     const existing = await findByName(tagData.name);
 
     if (existing) {
@@ -80,7 +94,16 @@ async function create(tagData) {
     return tag;
 }
 
-async function update(id, tagData) {
+async function update(id, tagData, actorId) {
+    if (isCatalogAuditEnabled()) return transactCatalog({ id, actorId, collection: "tags", operation: "updated",
+        change: (current, tags) => {
+            if (!current) return null;
+            const name = normalizeName(tagData.name);
+            const duplicate = name && serializeTags(tags).find((tag) => normalizeName(tag.name) === name);
+            if (duplicate && duplicate.id !== id) return { unchanged: true, result: { ...duplicate, duplicated: true } };
+            const value = { id, ...tagData };
+            return { value, result: value };
+        } });
     const existing = await findById(id);
 
     if (!existing) {
@@ -106,7 +129,8 @@ async function update(id, tagData) {
     return tag;
 }
 
-async function remove(id) {
+async function remove(id, actorId) {
+    if (isCatalogAuditEnabled()) return removeCatalogRecord("tags", id, actorId);
     const existing = await findById(id);
 
     if (!existing) {

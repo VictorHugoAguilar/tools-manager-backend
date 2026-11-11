@@ -35,7 +35,7 @@ test("publisher health reflects failures and recovery without exposing error det
         orderByKey() { return this; }, limitToFirst() { return this; },
         async get() {
             if (fail) throw new Error("sensitive error");
-            return { val: () => null };
+            return { forEach: () => {} };
         }
     }) }) });
     assert.deepEqual(worker.getHealth(), {

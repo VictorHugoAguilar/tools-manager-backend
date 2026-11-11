@@ -7,6 +7,15 @@ const {
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
 const { deleteImageByUrl } = require("./toolImageStorageService");
+const { isStorageBoxAuditEnabled, transactStorageBox } = require("../audit/businessOutbox");
+const { normalizeStoredShelfConfig } = require("../validators/shelfConfigValidator");
+
+function assertBoxFits(box, root) {
+    const config = normalizeStoredShelfConfig(root.shelfConfig);
+    if (box.shelfRow > config.rows || box.shelfColumn > config.columns) {
+        throw Object.assign(new Error("La caja está fuera de la configuración de estantes."), { statusCode: 409 });
+    }
+}
 
 function normalizeText(value) {
     return String(value ?? "").trim().toLowerCase();
@@ -242,10 +251,24 @@ async function searchProducts(query) {
     };
 }
 
-async function create(boxData) {
+async function create(boxData, actorId) {
     const database = getDatabaseInstance();
     const boxesRef = ref(database, "storageBoxes");
     const newBoxRef = push(boxesRef);
+    if (isStorageBoxAuditEnabled()) {
+        return transactStorageBox({ id: newBoxRef.key, actorId, action: "box.created",
+            change: (existing, boxes, root) => {
+                if (existing) throw Object.assign(new Error("Storage box already exists"), { statusCode: 409 });
+                const code = boxData.code?.trim() || `BOX-${String(
+                    Object.values(boxes).reduce((max, box) => Math.max(max, extractCodeNumber(box.code)), 0) + 1
+                ).padStart(4, "0")}`;
+                const box = { id: newBoxRef.key, code, name: boxData.name, description: boxData.description,
+                    imageUrl: boxData.imageUrl || "", shelfRow: boxData.shelfRow || 1,
+                    shelfColumn: boxData.shelfColumn || 1, products: {} };
+                assertBoxFits(box, root);
+                return { value: box, result: serializeBox(newBoxRef.key, box) };
+            } });
+    }
     const code = boxData.code && boxData.code.trim() !== ""
         ? boxData.code.trim()
         : await generateNextBoxCode();
@@ -264,7 +287,16 @@ async function create(boxData) {
     return serializeBox(newBoxRef.key, newBox);
 }
 
-async function update(id, boxData) {
+async function update(id, boxData, actorId) {
+    if (isStorageBoxAuditEnabled()) return transactStorageBox({ id, actorId, action: "box.updated",
+        change: (current, _boxes, root) => {
+            if (!current) return null;
+            const box = { ...current, id, code: boxData.code, name: boxData.name, description: boxData.description,
+                imageUrl: boxData.imageUrl ?? current.imageUrl ?? "", shelfRow: boxData.shelfRow ?? current.shelfRow ?? 1,
+                shelfColumn: boxData.shelfColumn ?? current.shelfColumn ?? 1 };
+            assertBoxFits(box, root);
+            return { value: box, result: serializeBox(id, box) };
+        } });
     const existingBox = await getRawBox(id);
 
     if (!existingBox) {
@@ -287,7 +319,9 @@ async function update(id, boxData) {
     return serializeBox(id, updatedBox);
 }
 
-async function remove(id) {
+async function remove(id, actorId) {
+    if (isStorageBoxAuditEnabled()) return Boolean(await transactStorageBox({ id, actorId, action: "box.deleted",
+        change: (current) => current ? { value: null, result: true } : null }));
     const existingBox = await getRawBox(id);
 
     if (!existingBox) {
@@ -306,7 +340,19 @@ async function remove(id) {
     return true;
 }
 
-async function createProduct(boxId, productData) {
+async function createProduct(boxId, productData, actorId) {
+    if (isStorageBoxAuditEnabled()) {
+        const productId = push(ref(getDatabaseInstance(), `storageBoxes/${boxId}/products`)).key;
+        return transactStorageBox({ id: boxId, targetId: productId, actorId, action: "box.product.created",
+            change: (box) => {
+                if (!box) return null;
+                const products = box.products || {};
+                if (Object.hasOwn(products, productId)) throw Object.assign(new Error("Storage product already exists"), { statusCode: 409 });
+                const product = { id: productId, ...productData };
+                products[productId] = product;
+                return { value: { ...box, products }, result: normalizeProductEntity(productId, product), auditDetails: { boxId } };
+            } });
+    }
     const existingBox = await getRawBox(boxId);
 
     if (!existingBox) {
@@ -340,7 +386,15 @@ async function findProductById(boxId, productId) {
     return normalizeProductEntity(productId, snapshot.val());
 }
 
-async function updateProduct(boxId, productId, productData) {
+async function updateProduct(boxId, productId, productData, actorId) {
+    if (isStorageBoxAuditEnabled()) return transactStorageBox({
+        id: boxId, targetId: productId, actorId, action: "box.product.updated",
+        change: (box) => {
+            if (!box?.products || !Object.hasOwn(box.products, productId)) return null;
+            const product = { id: productId, ...productData };
+            return { value: { ...box, products: { ...box.products, [productId]: product } },
+                result: normalizeProductEntity(productId, product), auditDetails: { boxId } };
+        } });
     const existingProduct = await findProductById(boxId, productId);
 
     if (!existingProduct) {
@@ -357,7 +411,15 @@ async function updateProduct(boxId, productId, productData) {
     return normalizeProductEntity(productId, updatedProduct);
 }
 
-async function removeProduct(boxId, productId) {
+async function removeProduct(boxId, productId, actorId) {
+    if (isStorageBoxAuditEnabled()) return Boolean(await transactStorageBox({
+        id: boxId, targetId: productId, actorId, action: "box.product.deleted",
+        change: (box) => {
+            if (!box?.products || !Object.hasOwn(box.products, productId)) return null;
+            const products = { ...box.products };
+            delete products[productId];
+            return { value: { ...box, products }, result: true, auditDetails: { boxId } };
+        } }));
     const existingProduct = await findProductById(boxId, productId);
 
     if (!existingProduct) {
@@ -370,7 +432,13 @@ async function removeProduct(boxId, productId) {
     return true;
 }
 
-async function updateImageUrl(boxId, imageUrl) {
+async function updateImageUrl(boxId, imageUrl, actorId) {
+    if (isStorageBoxAuditEnabled()) return transactStorageBox({ id: boxId, actorId, action: "box.image.updated",
+        change: (box) => {
+            if (!box) return null;
+            const value = { ...box, imageUrl };
+            return { value, result: serializeBox(boxId, value) };
+        } });
     const existingBox = await getRawBox(boxId);
 
     if (!existingBox) {
@@ -387,7 +455,15 @@ async function updateImageUrl(boxId, imageUrl) {
     return serializeBox(boxId, updatedBox);
 }
 
-async function updateProductImageUrl(boxId, productId, imageUrl) {
+async function updateProductImageUrl(boxId, productId, imageUrl, actorId) {
+    if (isStorageBoxAuditEnabled()) return transactStorageBox({
+        id: boxId, targetId: productId, actorId, action: "box.product.image.updated",
+        change: (box) => {
+            if (!box?.products || !Object.hasOwn(box.products, productId)) return null;
+            const product = { ...box.products[productId], imageUrl };
+            return { value: { ...box, products: { ...box.products, [productId]: product } },
+                result: normalizeProductEntity(productId, product), auditDetails: { boxId } };
+        } });
     const existingProduct = await findProductById(boxId, productId);
 
     if (!existingProduct) {

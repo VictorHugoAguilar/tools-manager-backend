@@ -6,6 +6,8 @@ const {
     set
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
+const { isCatalogAuditEnabled } = require("../audit/businessOutbox");
+const { createCatalogRecord, updateCatalogRecord, removeCatalogRecord } = require("../audit/catalogAudit");
 
 function serializeToolTypes(snapshotValue) {
     if (!snapshotValue) {
@@ -46,10 +48,11 @@ async function findById(id) {
     };
 }
 
-async function create(toolTypeData) {
+async function create(toolTypeData, actorId) {
     const database = getDatabaseInstance();
     const toolTypesRef = ref(database, "toolTypes");
     const newToolTypeRef = push(toolTypesRef);
+    if (isCatalogAuditEnabled()) return createCatalogRecord("toolTypes", newToolTypeRef.key, toolTypeData, actorId);
     const toolType = {
         id: newToolTypeRef.key,
         ...toolTypeData
@@ -59,7 +62,8 @@ async function create(toolTypeData) {
     return toolType;
 }
 
-async function update(id, toolTypeData) {
+async function update(id, toolTypeData, actorId) {
+    if (isCatalogAuditEnabled()) return updateCatalogRecord("toolTypes", id, toolTypeData, actorId);
     const existing = await findById(id);
 
     if (!existing) {
@@ -76,7 +80,8 @@ async function update(id, toolTypeData) {
     return toolType;
 }
 
-async function remove(id) {
+async function remove(id, actorId) {
+    if (isCatalogAuditEnabled()) return removeCatalogRecord("toolTypes", id, actorId);
     const existing = await findById(id);
 
     if (!existing) {

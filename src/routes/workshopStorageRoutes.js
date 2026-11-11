@@ -1,12 +1,13 @@
 const express = require("express");
 const controller = require("../controllers/workshopStorageController");
 const { uploadWorkshopStorageImage } = require("../middleware/workshopStorageUploadMiddleware");
+const { storageReadTelemetry } = require("../middleware/storageReadTelemetry");
 
 const workshopStorageRouter = express.Router();
 
-workshopStorageRouter.get("/", controller.getAll);
-workshopStorageRouter.get("/search", controller.search);
-workshopStorageRouter.get("/categories", controller.getMaterialCategories);
+workshopStorageRouter.get("/", storageReadTelemetry("storage.workshop.viewed"), controller.getAll);
+workshopStorageRouter.get("/search", storageReadTelemetry("storage.workshop.searched"), controller.search);
+workshopStorageRouter.get("/categories", storageReadTelemetry("storage.workshop.categories.viewed"), controller.getMaterialCategories);
 workshopStorageRouter.post("/categories", controller.createMaterialCategory);
 workshopStorageRouter.delete("/categories/:id", controller.deleteMaterialCategory);
 

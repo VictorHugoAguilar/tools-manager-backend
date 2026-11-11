@@ -9,11 +9,17 @@ const ROLE_FIELDS = ["permissionsBefore", "permissionsAfter"];
 const USER_ROLE_FIELDS = ["roleBefore", "roleAfter"];
 const USER_STATUS_FIELDS = ["activeBefore", "activeAfter"];
 
+class InvalidOutboxEntryError extends Error {}
+
 function eventFields(event) {
+    const scopedFields = event?.auditScope ? [...EVENT_FIELDS, "auditScope"] : EVENT_FIELDS;
+    if (event?.action === "workshop.category.created" || event?.action === "workshop.category.deleted") return [...scopedFields, "categoryId"];
+    if (typeof event?.action === "string" && event.action.startsWith("box.product.")) return [...scopedFields, "boxId"];
+    if (typeof event?.action === "string" && event.action.startsWith("repair.")) return [...EVENT_FIELDS, "toolId"];
     if (event?.action === "role.permissions.updated") return [...EVENT_FIELDS, ...ROLE_FIELDS];
     if (event?.action === "user.role.updated") return [...EVENT_FIELDS, ...USER_ROLE_FIELDS];
     if (event?.action === "user.status.updated") return [...EVENT_FIELDS, ...USER_STATUS_FIELDS];
-    return EVENT_FIELDS;
+    return scopedFields;
 }
 
 function validEvent(id, event) {
@@ -24,6 +30,10 @@ function validEvent(id, event) {
         event.schemaVersion === 1 && event.eventId === id &&
         typeof event.action === "string" && typeof event.actorId === "string" &&
         typeof event.targetId === "string" && typeof event.occurredAt === "string" &&
+        (!Object.hasOwn(event, "auditScope") || ["workshop", "boxes"].includes(event.auditScope)) &&
+        (!fields.includes("categoryId") || typeof event.categoryId === "string") &&
+        (!fields.includes("boxId") || typeof event.boxId === "string") &&
+        (!fields.includes("toolId") || typeof event.toolId === "string") &&
         (event.action !== "role.permissions.updated" ||
             ROLE_FIELDS.every((key) => typeof event[key] === "string")) &&
         (event.action !== "user.role.updated" ||
@@ -42,6 +52,7 @@ class AuditOutboxWorker {
         this.lastAttemptAt = null;
         this.lastSuccessfulCheckAt = null;
         this.lastFailureAt = null;
+        this.scanAfter = null;
     }
 
     start() {
@@ -92,36 +103,57 @@ class AuditOutboxWorker {
 
     async publishBatch() {
         const outbox = this.getRealtimeDatabase().ref("auditOutbox");
-        const snapshot = await outbox.orderByKey().limitToFirst(BATCH_SIZE).get();
-        const events = snapshot.val() || {};
-        for (const [id, event] of Object.entries(events)) {
-            if (!validEvent(id, event)) throw new Error(`Registro de auditoría pendiente no válido: ${id}`);
-            const fields = eventFields(event);
-            const target = this.getFirestoreDatabase().collection("auditEvents").doc(id);
+        let query = outbox.orderByKey();
+        if (this.scanAfter !== null) query = query.startAfter(this.scanAfter);
+        const snapshot = await query.limitToFirst(BATCH_SIZE).get();
+        const events = [];
+        snapshot.forEach((child) => { events.push([child.key, child.val()]); });
+        const errors = [];
+        for (const [id, event] of events) {
             try {
-                await target.create(event);
+                await this.publishEntry(outbox, id, event);
             } catch (error) {
-                if (error.code !== 6 && error.code !== "already-exists") throw error;
-                const existing = await target.get();
-                const data = existing.data();
-                if (!existing.exists || !data || fields.some((key) => data[key] !== event[key]) ||
-                    Object.keys(data).length !== fields.length) {
-                    throw new Error(`Conflicto al publicar el registro de auditoría: ${id}`);
+                if (!(error instanceof InvalidOutboxEntryError)) {
+                    if (errors.length) throw new AggregateError([...errors, error], error.message);
+                    throw error;
                 }
+                errors.push(error);
             }
-            let changed = false;
-            await outbox.child(id).transaction((current) => {
-                changed = false;
-                if (!current) return null;
-                if (fields.some((key) => current[key] !== event[key]) ||
-                    Object.keys(current).length !== fields.length) {
-                    changed = true;
-                    return;
-                }
-                return null;
-            }, undefined, false);
-            if (changed) throw new Error(`El registro de auditoría pendiente ha cambiado: ${id}`);
         }
+        this.scanAfter = events.length === BATCH_SIZE ? events.at(-1)[0] : null;
+        if (errors.length) {
+            if (errors.length === 1) throw errors[0];
+            throw new AggregateError(errors, `${errors.length} registros de auditoría pendientes requieren revisión.`);
+        }
+    }
+
+    async publishEntry(outbox, id, event) {
+        if (!validEvent(id, event)) throw new InvalidOutboxEntryError(`Registro de auditoría pendiente no válido: ${id}`);
+        const fields = eventFields(event);
+        const target = this.getFirestoreDatabase().collection("auditEvents").doc(id);
+        try {
+            await target.create(event);
+        } catch (error) {
+            if (error.code !== 6 && error.code !== "already-exists") throw error;
+            const existing = await target.get();
+            const data = existing.data();
+            if (!existing.exists || !data || fields.some((key) => data[key] !== event[key]) ||
+                Object.keys(data).length !== fields.length) {
+                throw new InvalidOutboxEntryError(`Conflicto al publicar el registro de auditoría: ${id}`);
+            }
+        }
+        let changed = false;
+        await outbox.child(id).transaction((current) => {
+            changed = false;
+            if (!current) return null;
+            if (fields.some((key) => current[key] !== event[key]) ||
+                Object.keys(current).length !== fields.length) {
+                changed = true;
+                return;
+            }
+            return null;
+        }, undefined, false);
+        if (changed) throw new InvalidOutboxEntryError(`El registro de auditoría pendiente ha cambiado: ${id}`);
     }
 }
 

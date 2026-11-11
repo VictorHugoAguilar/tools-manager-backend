@@ -24,6 +24,7 @@ const {
 const {
     getShelfConfig
 } = require("../services/shelfConfigService");
+const { isStorageBoxAuditEnabled } = require("../audit/businessOutbox");
 
 function getAllStorageBoxes(_req, res) {
     return handleControllerError(res, async () => {
@@ -72,7 +73,7 @@ function createStorageBox(req, res) {
             });
         }
 
-        const box = await create(validation.data);
+        const box = await create(validation.data, req.authUser?.id);
         return res.status(201).json(box);
     });
 }
@@ -92,7 +93,7 @@ function updateStorageBox(req, res) {
             });
         }
 
-        const updatedBox = await update(req.params.id, validation.data);
+        const updatedBox = await update(req.params.id, validation.data, req.authUser?.id);
 
         if (!updatedBox) {
             return res.status(404).json({ message: "Storage box not found" });
@@ -104,7 +105,7 @@ function updateStorageBox(req, res) {
 
 function deleteStorageBox(req, res) {
     return handleControllerError(res, async () => {
-        const deleted = await remove(req.params.id);
+        const deleted = await remove(req.params.id, req.authUser?.id);
 
         if (!deleted) {
             return res.status(404).json({ message: "Storage box not found" });
@@ -131,9 +132,10 @@ function uploadStorageBoxImage(req, res) {
 
         const previousImageUrl = existingBox.imageUrl;
         const uploadedImage = await uploadImageForStorageBox(req.params.id, req.file);
-        const updatedBox = await updateImageUrl(req.params.id, uploadedImage.downloadUrl);
+        const updatedBox = await updateImageUrl(req.params.id, uploadedImage.downloadUrl, req.authUser?.id);
 
-        if (previousImageUrl && previousImageUrl !== uploadedImage.downloadUrl) {
+        if (!updatedBox) return res.status(404).json({ message: "Storage box not found" });
+        if (!isStorageBoxAuditEnabled() && previousImageUrl && previousImageUrl !== uploadedImage.downloadUrl) {
             await deleteImageByUrl(previousImageUrl);
         }
 
@@ -155,7 +157,7 @@ function addStorageProduct(req, res) {
             });
         }
 
-        const product = await createProduct(req.params.boxId, validation.data);
+        const product = await createProduct(req.params.boxId, validation.data, req.authUser?.id);
 
         if (!product) {
             return res.status(404).json({ message: "Storage box not found" });
@@ -179,7 +181,8 @@ function updateStorageProduct(req, res) {
         const product = await updateProduct(
             req.params.boxId,
             req.params.productId,
-            validation.data
+            validation.data,
+            req.authUser?.id
         );
 
         if (!product) {
@@ -220,10 +223,12 @@ function uploadStorageProductImage(req, res) {
         const updatedProduct = await updateProductImageUrl(
             req.params.boxId,
             req.params.productId,
-            uploadedImage.downloadUrl
+            uploadedImage.downloadUrl,
+            req.authUser?.id
         );
 
-        if (previousImageUrl && previousImageUrl !== uploadedImage.downloadUrl) {
+        if (!updatedProduct) return res.status(404).json({ message: "Storage product not found" });
+        if (!isStorageBoxAuditEnabled() && previousImageUrl && previousImageUrl !== uploadedImage.downloadUrl) {
             await deleteImageByUrl(previousImageUrl);
         }
 
@@ -236,7 +241,7 @@ function uploadStorageProductImage(req, res) {
 
 function deleteStorageProduct(req, res) {
     return handleControllerError(res, async () => {
-        const deleted = await removeProduct(req.params.boxId, req.params.productId);
+        const deleted = await removeProduct(req.params.boxId, req.params.productId, req.authUser?.id);
 
         if (!deleted) {
             return res.status(404).json({ message: "Storage product not found" });
@@ -260,8 +265,8 @@ async function handleControllerError(res, action) {
             });
         }
 
-        return res.status(500).json({
-            message: "Internal server error"
+        return res.status(error.statusCode || 500).json({
+            message: error.statusCode ? error.message : "Internal server error"
         });
     }
 }

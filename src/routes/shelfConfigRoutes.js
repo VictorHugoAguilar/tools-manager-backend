@@ -1,4 +1,5 @@
 const express = require("express");
+const { storageReadTelemetry } = require("../middleware/storageReadTelemetry");
 const {
     getShelfConfig,
     updateShelfConfig
@@ -6,8 +7,7 @@ const {
 
 const shelfConfigRouter = express.Router();
 
-shelfConfigRouter.get("/", getShelfConfig);
+shelfConfigRouter.get("/", storageReadTelemetry("storage.shelf_config.viewed"), getShelfConfig);
 shelfConfigRouter.put("/", updateShelfConfig);
 
 module.exports = { shelfConfigRouter };
-

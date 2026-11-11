@@ -7,6 +7,7 @@ const {
     update
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
+const { isWorkshopStorageAuditEnabled, transactWorkshopStorage } = require("../audit/businessOutbox");
 
 const COLLECTIONS = ["shelves", "levels", "organizers", "compartments", "materials"];
 const PARENT_COLLECTIONS = {
@@ -118,7 +119,45 @@ function assertOrganizerFitsLevel(organizer, level) {
     }
 }
 
-async function create(collection, payload) {
+function validateAuditedChange(collection, id, entity, storage) {
+    const parent = PARENT_COLLECTIONS[collection];
+    if (parent) {
+        const parentEntity = storage[parent.collection]?.[entity[parent.field]];
+        if (!parentEntity) throw createServiceError(`${parent.collection.slice(0, -1)} not found`, 404);
+        if (collection === "compartments") {
+            if (Number(entity.column) > Number(parentEntity.columns || 1)) {
+                throw createServiceError("column exceeds the organizer's configured layout", 400);
+            }
+            if (Object.entries(storage.compartments || {}).some(([otherId, other]) =>
+                otherId !== id && other.organizerId === entity.organizerId &&
+                other.row === Number(entity.row) && other.column === Number(entity.column))) {
+                throw createServiceError("another compartment already occupies this grid position", 409);
+            }
+        }
+        if (collection === "organizers") assertOrganizerFitsLevel(entity, parentEntity);
+    }
+    if (collection === "levels" && Object.values(storage.organizers || {}).some((organizer) =>
+        organizer.levelId === id && !organizerFitsLevel(organizer, entity))) {
+        throw createServiceError("Organizer does not fit within the updated shelf level", 409);
+    }
+    if (collection === "organizers" && Object.values(storage.compartments || {}).some((compartment) =>
+        compartment.organizerId === id && compartment.column > Number(entity.columns))) {
+        throw createServiceError("Move the compartments into the new column layout before saving", 409);
+    }
+}
+
+async function create(collection, payload, actorId) {
+    if (isWorkshopStorageAuditEnabled()) {
+        const entityRef = push(collectionRef(collection));
+        const now = new Date().toISOString();
+        return transactWorkshopStorage({ id: entityRef.key, actorId, collection, action: "created",
+            change: (existing, _entities, root) => {
+                if (existing) throw createServiceError("Record already exists", 409);
+                const entity = { ...payload, createdAt: now, updatedAt: now };
+                validateAuditedChange(collection, entityRef.key, entity, root.workshopStorage || {});
+                return { value: entity, result: { id: entityRef.key, ...entity, collection } };
+            } });
+    }
     await assertParentExists(collection, payload);
     const entityRef = push(collectionRef(collection));
     const entity = {
@@ -131,7 +170,17 @@ async function create(collection, payload) {
     return { id: entityRef.key, ...entity, collection };
 }
 
-async function updateEntity(collection, id, payload) {
+async function updateEntity(collection, id, payload, actorId, action = "updated") {
+    if (isWorkshopStorageAuditEnabled()) {
+        const updatedAt = new Date().toISOString();
+        return transactWorkshopStorage({ id, actorId, collection, action,
+            change: (existing, _entities, root) => {
+                if (!existing) return null;
+                const entity = { ...existing, ...payload, updatedAt };
+                validateAuditedChange(collection, id, entity, root.workshopStorage || {});
+                return { value: entity, result: { id, ...entity, collection } };
+            } });
+    }
     const existing = await findEntity(collection, id);
 
     if (!existing) {
@@ -173,7 +222,21 @@ async function updateEntity(collection, id, payload) {
     return { ...existing, ...updates };
 }
 
-async function deleteEntity(collection, id) {
+async function deleteEntity(collection, id, actorId) {
+    if (isWorkshopStorageAuditEnabled()) {
+        return Boolean(await transactWorkshopStorage({ id, actorId, collection, action: "deleted",
+            change: (existing, _entities, root) => {
+                if (!existing) return null;
+                const storage = root.workshopStorage || {};
+                for (const childCollection of CHILD_COLLECTIONS[collection]) {
+                    const parentField = PARENT_COLLECTIONS[childCollection].field;
+                    if (Object.values(storage[childCollection] || {}).some((child) => child[parentField] === id)) {
+                        throw createServiceError(`Remove or move its ${childCollection} before deleting this record`, 409);
+                    }
+                }
+                return { value: null, result: true };
+            } }));
+    }
     const existing = await findEntity(collection, id);
 
     if (!existing) {

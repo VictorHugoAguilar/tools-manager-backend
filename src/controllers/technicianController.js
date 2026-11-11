@@ -31,7 +31,7 @@ function createTechnician(req, res) {
             });
         }
 
-        const technician = await technicianService.create(validation.data);
+        const technician = await technicianService.create(validation.data, req.authUser?.id);
         return res.status(201).json(technician);
     });
 }
@@ -47,7 +47,7 @@ function updateTechnician(req, res) {
             });
         }
 
-        const technician = await technicianService.update(req.params.id, validation.data);
+        const technician = await technicianService.update(req.params.id, validation.data, req.authUser?.id);
 
         if (!technician) {
             return res.status(404).json({ message: "Technician not found" });
@@ -59,7 +59,7 @@ function updateTechnician(req, res) {
 
 function deleteTechnician(req, res) {
     return handleControllerError(res, async () => {
-        const deleted = await technicianService.remove(req.params.id);
+        const deleted = await technicianService.remove(req.params.id, req.authUser?.id);
 
         if (!deleted) {
             return res.status(404).json({ message: "Technician not found" });
@@ -74,8 +74,8 @@ async function handleControllerError(res, action) {
         return await action();
     } catch (error) {
         console.error(error);
-        return res.status(500).json({
-            message: "Internal server error"
+        return res.status(error.statusCode || 500).json({
+            message: error.statusCode ? error.message : "Internal server error"
         });
     }
 }

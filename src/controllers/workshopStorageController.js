@@ -11,6 +11,7 @@ const {
     uploadMaterialImage
 } = require("../services/workshopStorageImageService");
 const { validateWorkshopStoragePayload } = require("../validators/workshopStorageValidator");
+const { isWorkshopStorageAuditEnabled } = require("../audit/businessOutbox");
 const {
     createMaterialCategory,
     deleteMaterialCategory,
@@ -48,14 +49,14 @@ function validatePayload(collection, body) {
 
 function createRecord(collection) {
     return respond(async (req, res) => {
-        const entity = await create(collection, validatePayload(collection, req.body));
+        const entity = await create(collection, validatePayload(collection, req.body), req.authUser?.id);
         return res.status(201).json(entity);
     });
 }
 
 function updateRecord(collection) {
     return respond(async (req, res) => {
-        const entity = await updateEntity(collection, req.params.id, validatePayload(collection, req.body));
+        const entity = await updateEntity(collection, req.params.id, validatePayload(collection, req.body), req.authUser?.id);
         return entity
             ? res.json(entity)
             : res.status(404).json({ message: "Record not found" });
@@ -64,7 +65,7 @@ function updateRecord(collection) {
 
 function deleteRecord(collection) {
     return respond(async (req, res) => {
-        const deleted = await deleteEntity(collection, req.params.id);
+        const deleted = await deleteEntity(collection, req.params.id, req.authUser?.id);
         return deleted
             ? res.status(204).send()
             : res.status(404).json({ message: "Record not found" });
@@ -82,11 +83,11 @@ function createWorkshopStorageController() {
             return res.json(await findAllMaterialCategories());
         }),
         createMaterialCategory: respond(async (req, res) => {
-            const category = await createMaterialCategory(req.body?.name);
+            const category = await createMaterialCategory(req.body?.name, req.authUser?.id);
             return res.status(201).json(category);
         }),
         deleteMaterialCategory: respond(async (req, res) => {
-            const deleted = await deleteMaterialCategory(req.params.id);
+            const deleted = await deleteMaterialCategory(req.params.id, req.authUser?.id);
             return deleted
                 ? res.status(204).send()
                 : res.status(404).json({ message: "Material category not found" });
@@ -111,8 +112,9 @@ function createWorkshopStorageController() {
                 return res.status(404).json({ message: "Record not found" });
             }
 
-            await deleteEntity("materials", req.params.id);
-            await deleteMaterialImage(existing.imagePath);
+            const deleted = await deleteEntity("materials", req.params.id, req.authUser?.id);
+            if (!deleted) return res.status(404).json({ message: "Record not found" });
+            if (!isWorkshopStorageAuditEnabled()) await deleteMaterialImage(existing.imagePath);
             return res.status(204).send();
         }),
         uploadMaterialImage: respond(async (req, res) => {
@@ -129,13 +131,17 @@ function createWorkshopStorageController() {
             const uploaded = await uploadMaterialImage(req.params.id, req.file);
 
             try {
-                const material = await updateEntity("materials", req.params.id, uploaded);
-                if (existing.imagePath) {
+                const material = await updateEntity("materials", req.params.id, uploaded, req.authUser?.id, "image.updated");
+                if (!material) {
+                    await deleteMaterialImage(uploaded.imagePath);
+                    return res.status(404).json({ message: "Material not found" });
+                }
+                if (existing.imagePath && !isWorkshopStorageAuditEnabled()) {
                     await deleteMaterialImage(existing.imagePath);
                 }
                 return res.json({ material });
             } catch (error) {
-                await deleteMaterialImage(uploaded.imagePath);
+                if (!isWorkshopStorageAuditEnabled()) await deleteMaterialImage(uploaded.imagePath);
                 throw error;
             }
         })

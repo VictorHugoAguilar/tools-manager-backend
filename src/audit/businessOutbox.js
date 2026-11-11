@@ -30,15 +30,33 @@ function isRegistrationAuditEnabled() {
     return process.env.AUDIT_REGISTRATION_ENABLED === "true";
 }
 
-async function transactEntity({ id, actorId, action, change, database, collection, allowEmptyRoot }) {
+function isWorkshopStorageAuditEnabled() {
+    return process.env.AUDIT_WORKSHOP_STORAGE_ENABLED === "true";
+}
+
+function isStorageBoxAuditEnabled() {
+    return process.env.AUDIT_STORAGE_BOXES_ENABLED === "true";
+}
+
+function isRepairAuditEnabled() {
+    return process.env.AUDIT_REPAIRS_ENABLED === "true";
+}
+
+function isCatalogAuditEnabled() {
+    return process.env.AUDIT_CATALOGS_ENABLED === "true";
+}
+
+async function transactEntity({ id, actorId, action, change, database, collection, allowEmptyRoot, collectionPath, targetId = id, auditScope }) {
     if (typeof id !== "string" || !id || /[.#$/\[\]\u0000-\u001f\u007f]/.test(id) ||
+        typeof targetId !== "string" || !targetId || /[.#$/\[\]\u0000-\u001f\u007f]/.test(targetId) ||
         typeof actorId !== "string" || !actorId || typeof change !== "function") {
         throw new Error("Datos de auditoría no válidos.");
     }
     const eventId = randomUUID();
     const event = {
-        schemaVersion: 1, eventId, action, actorId, targetId: id,
-        occurredAt: new Date().toISOString()
+        schemaVersion: 1, eventId, action, actorId, targetId,
+        occurredAt: new Date().toISOString(),
+        ...(auditScope ? { auditScope } : {})
     };
     let resultValue;
     let transactionError;
@@ -51,19 +69,26 @@ async function transactEntity({ id, actorId, action, change, database, collectio
             transactionError = Object.assign(new Error("La base supera el límite seguro para la auditoría de negocio."), { statusCode: 503 });
             return;
         }
-        const entities = root[collection] || {};
+        let parent = root;
+        const path = collectionPath || [collection];
+        for (const segment of path.slice(0, -1)) {
+            parent[segment] = parent[segment] || {};
+            parent = parent[segment];
+        }
+        const entities = path.length ? parent[path.at(-1)] || {} : root;
         let outcome;
         try {
-            outcome = change(entities[id] || null, entities, root);
+            outcome = change(Object.hasOwn(entities, id) ? entities[id] : null, entities, root);
         } catch (error) {
             transactionError = error;
             return;
         }
         if (!outcome) return;
         resultValue = outcome.result;
+        if (outcome.unchanged) return root;
         if (outcome.value === null) delete entities[id];
         else entities[id] = outcome.value;
-        root[collection] = entities;
+        if (path.length) parent[path.at(-1)] = entities;
         root.auditOutbox = root.auditOutbox || {};
         root.auditOutbox[eventId] = { ...event, ...outcome.auditDetails };
         if (Buffer.byteLength(JSON.stringify(root), "utf8") > MAX_ROOT_BYTES) {
@@ -80,9 +105,58 @@ async function transactEntity({ id, actorId, action, change, database, collectio
     return resultValue;
 }
 
+function transactStorageBox({ id, targetId = id, actorId, action, change, database = getAdminDatabase() }) {
+    const actions = ["box.created", "box.updated", "box.deleted", "box.image.updated",
+        "box.product.created", "box.product.updated", "box.product.deleted", "box.product.image.updated"];
+    if (!actions.includes(action)) throw new Error("Acción de auditoría de cajas no válida.");
+    return transactEntity({ id, targetId, actorId, action, change, database, collection: "storageBoxes", allowEmptyRoot: false, auditScope: "boxes" });
+}
+
+function transactStorageSettings({ id, actorId, action, change, database = getAdminDatabase() }) {
+    const paths = {
+        "workshop.category.created": ["workshopStorageSettings"],
+        "workshop.category.deleted": ["workshopStorageSettings"],
+        "box.shelf-config.updated": []
+    };
+    if (!Object.hasOwn(paths, action)) throw new Error("Acción de configuración de almacenamiento no válida.");
+    return transactEntity({ id, actorId, action, change, database, collectionPath: paths[action], allowEmptyRoot: false,
+        auditScope: action.startsWith("workshop.") ? "workshop" : "boxes" });
+}
+
+function transactWorkshopStorage({ id, actorId, collection, action, change, database = getAdminDatabase() }) {
+    const collections = ["shelves", "levels", "organizers", "compartments", "materials"];
+    if (!collections.includes(collection) || !["created", "updated", "deleted", "image.updated"].includes(action)) {
+        throw new Error("Acción de auditoría de almacenamiento no válida.");
+    }
+    return transactEntity({
+        id, actorId, change, database, collectionPath: ["workshopStorage", collection],
+        action: `workshop.${collection}.${action}`, allowEmptyRoot: false, auditScope: "workshop"
+    });
+}
+
 function transactTool({ id, actorId, action, change, database = getAdminDatabase() }) {
     if (!TOOL_ACTIONS.has(action)) throw new Error("Acción de auditoría de herramienta no válida.");
     return transactEntity({ id, actorId, action, change, database, collection: "tools", allowEmptyRoot: action === "tool.created" });
+}
+
+function transactRepair({ id, toolId, actorId, action, change, database = getAdminDatabase() }) {
+    if (typeof toolId !== "string" || !toolId || /[.#$/\[\]\u0000-\u001f\u007f]/.test(toolId) ||
+        !["repair.created", "repair.updated", "repair.deleted"].includes(action)) {
+        throw new Error("Datos de auditoría de reparación no válidos.");
+    }
+    return transactEntity({ id, actorId, action, change: (current, entities, root) => {
+        const outcome = change(current, entities, root);
+        return outcome ? { ...outcome, auditDetails: { toolId } } : outcome;
+    }, database, collectionPath: ["toolRepairs", toolId], allowEmptyRoot: false });
+}
+
+function transactCatalog({ id, actorId, collection, operation, change, database = getAdminDatabase() }) {
+    const names = { locations: "location", technicians: "technician", toolTypes: "tool_type", tags: "tag" };
+    if (!Object.hasOwn(names, collection) || !["created", "updated", "deleted"].includes(operation)) {
+        throw new Error("Acción de auditoría de catálogo no válida.");
+    }
+    return transactEntity({ id, actorId, action: `${names[collection]}.${operation}`, change, database,
+        collection, allowEmptyRoot: operation === "created" });
 }
 
 function transactRolePermissions({ id, actorId, change, database = getAdminDatabase() }) {
@@ -103,6 +177,8 @@ function transactAdminUser({ id, actorId, action, change, database = getAdminDat
 
 module.exports = {
     isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
-    isRegistrationAuditEnabled,
-    transactTool, transactRolePermissions, transactAdminUser, MAX_ROOT_BYTES
+    isRegistrationAuditEnabled, isWorkshopStorageAuditEnabled, isStorageBoxAuditEnabled, isRepairAuditEnabled,
+    isCatalogAuditEnabled,
+    transactTool, transactRolePermissions, transactAdminUser, transactWorkshopStorage, transactStorageBox,
+    transactStorageSettings, transactRepair, transactCatalog, MAX_ROOT_BYTES
 };

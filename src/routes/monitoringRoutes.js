@@ -172,6 +172,7 @@ function createMonitoringRouter(options = {}) {
                 schemaVersion: 1, action: "monitoring.audit-status.accessed",
                 actorId: req.authUser.id, occurredAt: Timestamp.now()
             });
+
             const pending = await auditPublisher.getPendingSummary();
             res.set("Cache-Control", "no-store");
             return res.json({
@@ -179,6 +180,33 @@ function createMonitoringRouter(options = {}) {
                 pending,
                 publisher: auditPublisher.getHealth()
             });
+        } catch (error) {
+            return next(error);
+        }
+    });
+
+    router.get("/storage-history/:scope", async (req, res, next) => {
+        const scope = req.params.scope;
+        if (!["workshop", "boxes"].includes(scope) || Object.keys(req.query).length) {
+            return res.status(400).json({ message: "La consulta de historial no es válida." });
+        }
+        try {
+            const db = getDatabase();
+            await db.collection("auditEvents").doc(randomUUID()).create({
+                schemaVersion: 1, action: "monitoring.storage-history.accessed",
+                actorId: req.authUser.id, occurredAt: Timestamp.now()
+            });
+            const snapshot = await db.collection("auditEvents")
+                .where("auditScope", "==", scope).orderBy("occurredAt", "desc").limit(25).get();
+            const events = snapshot.docs.map((doc) => {
+                const event = doc.data();
+                return { eventId: doc.id, action: event.action, actorId: event.actorId,
+                    targetId: event.targetId, occurredAt: event.occurredAt,
+                    ...(event.boxId ? { boxId: event.boxId } : {}),
+                    ...(event.categoryId ? { categoryId: event.categoryId } : {}) };
+            });
+            res.set("Cache-Control", "no-store");
+            return res.json({ events, limit: 25 });
         } catch (error) {
             return next(error);
         }

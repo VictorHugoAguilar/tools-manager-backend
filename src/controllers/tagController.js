@@ -31,7 +31,7 @@ function createTag(req, res) {
             });
         }
 
-        const tag = await tagService.create(validation.data);
+        const tag = await tagService.create(validation.data, req.authUser?.id);
         return res.status(201).json(tag);
     });
 }
@@ -47,7 +47,7 @@ function updateTag(req, res) {
             });
         }
 
-        const tag = await tagService.update(req.params.id, validation.data);
+        const tag = await tagService.update(req.params.id, validation.data, req.authUser?.id);
 
         if (!tag) {
             return res.status(404).json({ message: "Tag not found" });
@@ -66,7 +66,7 @@ function updateTag(req, res) {
 
 function deleteTag(req, res) {
     return handleControllerError(res, async () => {
-        const deleted = await tagService.remove(req.params.id);
+        const deleted = await tagService.remove(req.params.id, req.authUser?.id);
 
         if (!deleted) {
             return res.status(404).json({ message: "Tag not found" });
@@ -81,8 +81,8 @@ async function handleControllerError(res, action) {
         return await action();
     } catch (error) {
         console.error(error);
-        return res.status(500).json({
-            message: "Internal server error"
+        return res.status(error.statusCode || 500).json({
+            message: error.statusCode ? error.message : "Internal server error"
         });
     }
 }
