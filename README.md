@@ -466,7 +466,12 @@ las señales recientes de backend y WebSocket; frontend y almacenamiento son
 `monitoring:app` y registran el acceso antes de consultar Firestore.
 El panel permite consultar ambas métricas históricas por fechas locales y
 resolución de un minuto o una hora; muestra los intervalos devueltos y conserva
-los huecos como ausencia de datos. La consulta de servicios se solicita de forma
+los huecos como ausencia de datos. Las gráficas muestran peticiones y errores,
+latencia media, o aperturas, cierres y actualizaciones WebSocket; las tablas
+mantienen los valores numéricos. Para evitar sobrecargar el navegador, las
+gráficas admiten hasta 1500 intervalos: por encima de ese límite permanece
+disponible la tabla completa y se recomienda reducir el rango o usar resolución
+horaria. La consulta de servicios se solicita de forma
 independiente y muestra las señales recientes, sin interpretar un heartbeat como
 garantía de disponibilidad. Cada consulta queda auditada y un fallo se presenta
 explícitamente sin sustituirlo por datos vacíos.
