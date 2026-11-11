@@ -265,6 +265,130 @@ test("item edits retain archived-project behavior and reject empty or invalid ed
     assert.equal(Object.keys(h.root.auditOutbox).length, 1);
 });
 
+test("completion and reopening atomically audit status, reminders and one recurring occurrence", async () => {
+    const h = harness({
+        authUsers: { owner: { firstName: "Ada" }, editor: { firstName: "Editor" } },
+        todoList: {
+            TodoLists: { project: { ownerUserId: "owner" } },
+            TodoListMembers: { project: { editor: { role: "editor" } } },
+            TodoListLabels: { label: { name: "private", ownerUserId: "owner" } }
+        }
+    });
+    const item = await h.todo.todoListCreateItem({
+        title: "secret", todoListId: "project", dueDate: "2099-06-01", recurrence: { frequency: "daily" },
+        labelIds: ["label"], assigneeUserIds: ["editor"]
+    }, "owner");
+    h.root.todoList.TodoListReminders = { [item.id]: {
+        scheduled: { status: "scheduled" },
+        processing: { status: "processing", processingLeaseUntil: "2099" },
+        delivered: { status: "triggered" }
+    } };
+    const completed = await h.todo.todoListSetItemStatus(item.id, "completed", "editor");
+    assert.equal(completed.status, "completed");
+    assert.ok(completed.completedAt);
+    const recurrence = h.root.todoList.TodoListRecurrences[item.recurrenceId];
+    const nextId = `${item.recurrenceId}_20990602`;
+    assert.equal(recurrence.lastCompletedItemId, item.id);
+    assert.equal(recurrence.lastOccurrenceId, nextId);
+    const next = h.root.todoList.TodoListItems[nextId];
+    assert.equal(next.status, "pending");
+    assert.equal(next.dueDate, "2099-06-02");
+    assert.equal(Object.hasOwn(next, "id"), false);
+    assert.deepEqual(h.root.todoList.TodoListItemLabels[nextId], { label: true });
+    assert.deepEqual(h.root.todoList.TodoListItemAssignees[nextId], { editor: true });
+    assert.equal(Object.values(h.root.todoList.TodoListActivities[nextId])[0].action, "recurrence-generated");
+    assert.equal(h.root.todoList.TodoListReminders[item.id].processing.processingLeaseUntil, undefined);
+    assert.equal(h.root.todoList.TodoListReminders[item.id].scheduled.status, "cancelled");
+    assert.equal(h.root.todoList.TodoListReminders[item.id].delivered.status, "triggered");
+    await h.todo.todoListSetItemStatus(item.id, "completed", "editor");
+    assert.equal(Object.keys(h.root.auditOutbox).length, 2);
+    assert.equal(Object.keys(h.root.todoList.TodoListActivities[nextId]).length, 1);
+    await h.todo.todoListSetItemStatus(item.id, "pending", "editor");
+    assert.equal(h.root.todoList.TodoListItems[item.id].completedAt, "");
+    const events = Object.values(h.root.auditOutbox);
+    assert.deepEqual(events.map((event) => event.action), ["todo.item.created", "todo.item.completed", "todo.item.reopened"]);
+    assert.doesNotMatch(JSON.stringify(events), /secret|private|2099/);
+    const published = [];
+    const worker = new AuditOutboxWorker({ getRealtimeDatabase: () => h.database,
+        getFirestoreDatabase: () => ({ collection: () => ({ doc: () => ({ create: async (event) => published.push(event) }) }) }) });
+    await worker.flush();
+    assert.equal(published.length, 3);
+});
+
+test("completion repairs missing occurrences, respects recurrence limits and rejects conflicts", async () => {
+    const h = harness({
+        authUsers: { owner: {} },
+        todoList: {
+            TodoListItems: {
+                item: { title: "task", createdByUserId: "owner", todoListId: "", sectionId: "",
+                    status: "completed", dueDate: "2099-06-01", recurrenceId: "repeat" }
+            },
+            TodoListRecurrences: {
+                repeat: { isActive: true, frequency: "daily", nextDueDate: "2099-06-02",
+                    lastCompletedItemId: "item", lastOccurrenceId: "repeat_20990602" }
+            }
+        }
+    });
+    await h.todo.todoListSetItemStatus("item", "completed", "owner");
+    assert.equal(h.root.todoList.TodoListItems.repeat_20990602.dueDate, "2099-06-02");
+    assert.equal(Object.values(h.root.auditOutbox)[0].action, "todo.item.completed");
+    await h.todo.todoListSetItemStatus("item", "completed", "owner");
+    assert.equal(Object.keys(h.root.auditOutbox).length, 1);
+    h.root.todoList.TodoListItems.repeat_20990602.title = "existing";
+    h.root.todoList.TodoListItems.repeat_20990602.recurrenceId = "different";
+    await assert.rejects(h.todo.todoListSetItemStatus("item", "completed", "owner"), { statusCode: 409 });
+    assert.equal(h.root.todoList.TodoListItems.repeat_20990602.title, "existing");
+    h.root.todoList.TodoListItems.item.status = "pending";
+    h.root.todoList.TodoListRecurrences.repeat = {
+        isActive: true, frequency: "daily", nextDueDate: "2099-06-01", endDate: "2099-06-01"
+    };
+    await h.todo.todoListSetItemStatus("item", "completed", "owner");
+    assert.equal(h.root.todoList.TodoListRecurrences.repeat.isActive, false);
+    assert.equal(h.root.todoList.TodoListRecurrences.repeat.lastCompletedItemId, "item");
+});
+
+test("completion rechecks permissions, current recurrence and handles database failure", async () => {
+    const h = harness({
+        authUsers: { owner: {}, editor: {} },
+        todoList: {
+            TodoLists: { project: { ownerUserId: "owner" } },
+            TodoListMembers: { project: { editor: { role: "editor" } } },
+            TodoListItems: { item: { title: "task", todoListId: "project", sectionId: "", status: "pending",
+                dueDate: "2099-06-01", recurrenceId: "repeat" } },
+            TodoListRecurrences: { repeat: { isActive: true, frequency: "daily", nextDueDate: "2099-06-01" } }
+        }
+    });
+    h.retry((root) => { root.todoList.TodoListMembers.project.editor.role = "viewer"; });
+    await assert.rejects(h.todo.todoListSetItemStatus("item", "completed", "editor"), { statusCode: 403 });
+    assert.equal(h.root.todoList.TodoListItems.item.status, "pending");
+    assert.equal(h.root.auditOutbox, undefined);
+    h.retry((root) => { root.todoList.TodoListRecurrences.repeat.nextDueDate = "2099-06-04"; });
+    await h.todo.todoListSetItemStatus("item", "completed", "owner");
+    assert.equal(h.root.todoList.TodoListRecurrences.repeat.nextDueDate, "2099-06-05");
+    assert.ok(h.root.todoList.TodoListItems.repeat_20990605);
+    h.fail();
+    await assert.rejects(h.todo.todoListSetItemStatus("item", "pending", "owner"), /database unavailable/);
+    assert.equal(h.root.todoList.TodoListItems.item.status, "completed");
+});
+
+test("repeating an older completed task does not advance an already progressed recurrence", async () => {
+    const h = harness({
+        authUsers: { owner: {} },
+        todoList: {
+            TodoListItems: { old: { title: "task", createdByUserId: "owner", todoListId: "", sectionId: "",
+                status: "completed", dueDate: "2099-06-01", recurrenceId: "repeat" } },
+            TodoListRecurrences: { repeat: {
+                isActive: true, frequency: "daily", nextDueDate: "2099-06-03",
+                lastCompletedItemId: "repeat_20990602", lastOccurrenceId: "repeat_20990603"
+            } }
+        }
+    });
+    await h.todo.todoListSetItemStatus("old", "completed", "owner");
+    assert.equal(h.root.todoList.TodoListRecurrences.repeat.nextDueDate, "2099-06-03");
+    assert.equal(h.root.todoList.TodoListItems.repeat_20990604, undefined);
+    assert.equal(h.root.auditOutbox, undefined);
+});
+
 test("item priority, importance, archive and ordering are audited with reminder cancellation", async () => {
     const h = harness({
         authUsers: { owner: { firstName: "Ada" } },

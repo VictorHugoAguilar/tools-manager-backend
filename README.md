@@ -116,12 +116,12 @@ auditan hitos y cambios de acceso, no cada actualización WebSocket.
 | Tablero: comentarios y adjuntos | Auditoría experimental `AUDIT_TASK_BOARD_TASKS_ENABLED`: `task_board.comment.created/updated/deleted` y `task_board.attachment.created/deleted`. | Validar la integración con Storage y diseñar la conciliación de archivos conservados; eventos sin texto, nombres ni URL. |
 | Lista de tareas: proyectos, orden, archivo y miembros | Auditoría experimental `AUDIT_TODO_PROJECTS_ENABLED`: `todo.project.created/updated/deleted/archived/restored/reordered` y `todo.member.added/removed`. | Validar en Firebase y completar la auditoría de las operaciones relacionadas antes de habilitar. Lecturas: agregados. |
 | Lista de tareas: secciones | Auditoría experimental `AUDIT_TODO_SECTIONS_ENABLED`: `todo.section.created/updated/deleted/reordered`. | Validar en Firebase y completar las operaciones relacionadas antes de habilitar. La eliminación de un proyecto audita el proyecto, no cada sección eliminada en cascada. |
-| Lista de tareas: tareas y subtareas | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.item.created/updated/moved/archived/unarchived/reordered`, `todo.item.importance.updated`, `todo.item.priority.updated` y `todo.child.created/updated/deleted`. La duplicación utiliza el alta y genera `todo.item.created`. | Faltan `todo.item.deleted/completed/reopened/duplicated`. La duplicación no valida atómicamente la tarea de origen. |
+| Lista de tareas: tareas y subtareas | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.item.created/updated/moved/completed/reopened/archived/unarchived/reordered`, `todo.item.importance.updated`, `todo.item.priority.updated` y `todo.child.created/updated/deleted`. La duplicación utiliza el alta y genera `todo.item.created`. | Faltan `todo.item.deleted/duplicated`. La duplicación no valida atómicamente la tarea de origen. |
 | Lista de tareas: etiquetas | Auditoría experimental `AUDIT_TODO_LABELS_ENABLED`: `todo.label.created/updated/deleted`. | Validar en Firebase y completar las rutas que modifican relaciones de etiquetas antes de habilitar. |
 | Lista de tareas: comentarios | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.comment.created/updated/deleted`. | Validar permisos y concurrencia en Firebase. No guardar contenido ni nombres en los eventos. |
 | Lista de tareas: recordatorios manuales | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.reminder.created/updated/deleted`. | Validar en Firebase y coordinar con la edición de tareas y el procesador automático antes de habilitar. |
 | Lista de tareas: adjuntos | Sin auditoría durable específica. | Auditoría `todo.attachment.created/deleted`. No guardar contenido, texto, nombres ni URL. |
-| Lista de tareas: recurrencia, envío de recordatorios y notificaciones | Sin auditoría durable específica; existen procesos automáticos. | Diseñar eventos idempotentes `todo.recurrence.created` y `todo.reminder.delivered` para cambios de negocio confirmados por el sistema; separar fallos de entrega como telemetría `todo.reminder.delivery.failed`. Lectura de notificaciones y marca de leída: agregados, sin auditoría durable. El actor automático debe ser una identidad de sistema explícita, no un usuario inventado. |
+| Lista de tareas: recurrencia, envío de recordatorios y notificaciones | La siguiente ocurrencia creada al completar se confirma con `todo.item.completed`; no existe evento independiente de recurrencia ni auditoría de entrega automática. | Diseñar eventos idempotentes `todo.recurrence.created` y `todo.reminder.delivered` para cambios de negocio confirmados por el sistema; separar fallos de entrega como telemetría `todo.reminder.delivery.failed`. Lectura de notificaciones y marca de leída: agregados, sin auditoría durable. El actor automático debe ser una identidad de sistema explícita, no un usuario inventado. |
 | Dibujar: documentos | Auditoría experimental `AUDIT_DRAWING_DOCUMENTS_ENABLED`: `drawing.document.created/updated/deleted/archived/restored`. | Falta auditar la duplicación y validar concurrencia con páginas y colaboración. |
 | Dibujar: páginas y restauración | Auditoría experimental `AUDIT_DRAWING_PAGES_ENABLED`: `drawing.page.created/updated/deleted/reordered`. | Faltan la duplicación de páginas y la restauración de versiones. Validar las operaciones y concurrencia con colaboración. |
 | Dibujar: snapshots, versiones, preferencias y recursos | Sin auditoría durable específica. | Auditar hitos de versión y carga/eliminación de recursos con `drawing.version.created` y `drawing.asset.created/deleted`, sin contenido ni URL. No auditar cada actualización colaborativa ni cada guardado automático como cambio individual; medir actividad agregada. Preferencias personales: agregados. Distinguir restauración explícita de guardados automáticos. |
@@ -248,10 +248,10 @@ creación, edición, archivo, restauración, eliminación y orden de proyectos,
 así como de altas y bajas de miembros. Los eventos de miembros incluyen el ID
 del proyecto y el del miembro, sin datos de perfil. El acceso del propietario,
 las referencias y el evento se comprueban o escriben en la transacción. Los
-alias de proyectos utilizan las mismas funciones. Las tareas, comentarios,
-archivos, recordatorios y procesos automáticos aún no están auditados; sus
-escrituras también pueden competir con estas transacciones. Las secciones
-disponen de la bandera independiente descrita a continuación.
+alias de proyectos utilizan las mismas funciones. Las tareas, comentarios y
+recordatorios manuales disponen de la bandera descrita más abajo; las
+operaciones restantes y procesos automáticos aún pueden competir con estas
+transacciones. Las secciones disponen de otra bandera independiente.
 
 `AUDIT_TODO_SECTIONS_ENABLED=true` habilita experimentalmente la auditoría de
 alta, edición, eliminación y ordenación de secciones. El acceso de propietario o
@@ -260,12 +260,12 @@ eventos solo contienen identificadores y acción, no nombres ni contenido.
 Requiere `AUDIT_TODO_PROJECTS_ENABLED=true`: el backend rechaza el arranque si
 se habilita sin la auditoría de proyectos. Al eliminar un proyecto, sus
 secciones se eliminan junto con el evento del proyecto, sin eventos individuales.
-La edición general y los procesos automáticos de tareas aún no se han adaptado
-a estas transacciones: no activar hasta completar esa integración y validar
+Algunas operaciones y procesos automáticos de tareas aún no se han adaptado a
+estas transacciones: no activar hasta completar esa integración y validar
 concurrencia real.
 
 `AUDIT_TODO_ITEMS_ENABLED=true` habilita experimentalmente la auditoría de
-creación, edición, movimiento, archivo, desarchivo, importancia, prioridad y ordenación
+creación, edición, movimiento, finalización, reapertura, archivo, desarchivo, importancia, prioridad y ordenación
 de tareas, además de alta, edición y eliminación de subtareas, comentarios y
 recordatorios manuales.
 Las referencias a proyectos, secciones,
@@ -276,6 +276,12 @@ contenido. La respuesta detallada se consulta después de la confirmación: si
 esa lectura falla, la operación ya puede haberse guardado y auditado.
 La edición confirma también los cambios de etiquetas, responsables, recurrencia
 y reprogramación o cancelación de recordatorios junto con la actividad.
+La finalización cancela recordatorios pendientes y confirma la siguiente
+ocurrencia recurrente, sus relaciones y actividad en la misma transacción; el
+evento identifica la tarea completada, no la ocurrencia generada. Repetir la
+finalización no crea otra ocurrencia y puede reparar una ocurrencia inexistente
+de una transacción anterior. La reparación no reconstruye relaciones que falten
+en una ocurrencia ya existente.
 Al archivar una tarea se cancelan en la transacción sus recordatorios pendientes
 o en procesamiento; las actividades de subtareas también se guardan en ella.
 La edición de comentarios exige ser el autor; su eliminación exige ser el autor
@@ -288,7 +294,7 @@ realiza sus propias escrituras y su entrega no está auditada: deben integrarse
 y comprobarse las posibles carreras con modificaciones manuales.
 Requiere `AUDIT_TODO_SECTIONS_ENABLED=true` y, por tanto,
 `AUDIT_TODO_PROJECTS_ENABLED=true`; el backend rechaza una configuración
-incompleta. La eliminación, estados, recurrencia automática y
+incompleta. La eliminación, entrega automática de recordatorios y
 restantes operaciones todavía no están auditadas. La duplicación pasa por el
 alta y produce `todo.item.created`, pero su lectura de origen es independiente.
 No activar hasta integrar las rutas restantes y validar Firebase, las condiciones

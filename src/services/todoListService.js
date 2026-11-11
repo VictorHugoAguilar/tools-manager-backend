@@ -1768,8 +1768,94 @@ async function todoListEnsureNextOccurrence(todoListItem, todoListUserId) {
     }
 }
 
+function todoListAuditedEnsureNextOccurrence(data, itemId, item, userId, activityId, now, statusChanged) {
+    if (!item.recurrenceId) return false;
+    todoListValidateAuditId(item.recurrenceId);
+    const recurrences = data.TodoListRecurrences || {};
+    const recurrence = Object.hasOwn(recurrences, item.recurrenceId) ? recurrences[item.recurrenceId] : null;
+    if (!recurrence?.isActive) return false;
+    let changed = false;
+    if (recurrence.lastCompletedItemId !== itemId) {
+        if (!statusChanged && recurrence.lastCompletedItemId &&
+            recurrence.lastOccurrenceId !== itemId) return false;
+        const nextDate = todoListNextOccurrenceDate(recurrence.nextDueDate || item.dueDate, recurrence);
+        recurrence.lastCompletedItemId = itemId;
+        recurrence.updatedAt = now;
+        if (recurrence.endDate && nextDate > recurrence.endDate) {
+            recurrence.isActive = false;
+            return true;
+        }
+        recurrence.nextDueDate = nextDate;
+        recurrence.lastOccurrenceId = `${item.recurrenceId}_${nextDate.replaceAll("-", "")}`;
+        changed = true;
+    }
+    const nextDate = recurrence.nextDueDate;
+    const nextItemId = recurrence.lastOccurrenceId || `${item.recurrenceId}_${nextDate.replaceAll("-", "")}`;
+    todoListValidateAuditId(nextItemId);
+    const items = data.TodoListItems;
+    if (Object.hasOwn(items, nextItemId)) {
+        if (items[nextItemId]?.recurrenceId !== item.recurrenceId || items[nextItemId]?.dueDate !== nextDate) {
+            throw todoListError("La siguiente ocurrencia entra en conflicto con una tarea existente.", 409);
+        }
+        return changed;
+    }
+    items[nextItemId] = {
+        ...item, parentItemId: "", status: "pending", dueDate: nextDate, completedAt: "",
+        isArchived: false, position: item.position, createdByUserId: userId, createdAt: now, updatedAt: now
+    };
+    for (const collection of ["TodoListItemLabels", "TodoListItemAssignees"]) {
+        const ids = todoListAuditedRelationIds(data, collection, itemId);
+        if (ids.length) {
+            data[collection] = data[collection] || {};
+            data[collection][nextItemId] = Object.fromEntries(ids.map((id) => [id, true]));
+        }
+    }
+    todoListAuditedActivity(data, nextItemId, activityId, userId, "recurrence-generated", null,
+        { sourceItemId: itemId }, now);
+    return true;
+}
+
 async function todoListSetItemStatus(todoListItemId, status, todoListUserId) {
     if (!["pending", "completed"].includes(status)) throw todoListError("El estado indicado no es válido.");
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListItemId);
+        todoListValidateAuditId(todoListUserId);
+        const now = new Date().toISOString();
+        const activityId = randomUUID();
+        const occurrenceActivityId = randomUUID();
+        await transactTodoItem({
+            targetId: todoListItemId, actorId: todoListUserId,
+            action: status === "completed" ? "todo.item.completed" : "todo.item.reopened",
+            change: (data) => {
+                const item = todoListAuditedItem(data, todoListItemId, todoListUserId);
+                let changed = false;
+                const statusChanged = item.status !== status;
+                if (statusChanged) {
+                    const previousStatus = item.status ?? null;
+                    item.status = status;
+                    item.completedAt = status === "completed" ? now : "";
+                    item.updatedAt = now;
+                    todoListAuditedActivity(data, todoListItemId, activityId, todoListUserId,
+                        status, previousStatus, status, now);
+                    changed = true;
+                }
+                if (status === "completed") {
+                    const reminders = data.TodoListReminders?.[todoListItemId] || {};
+                    for (const reminder of Object.values(reminders)) {
+                        if (["scheduled", "processing"].includes(reminder.status)) {
+                            reminder.status = "cancelled";
+                            delete reminder.processingLeaseUntil;
+                            changed = true;
+                        }
+                    }
+                    if (todoListAuditedEnsureNextOccurrence(data, todoListItemId, item, todoListUserId,
+                        occurrenceActivityId, now, statusChanged)) changed = true;
+                }
+                return { value: data, result: true, unchanged: !changed };
+            }
+        });
+        return todoListGetItem(todoListItemId, todoListUserId);
+    }
     const { item: todoListItem } = await todoListGetItemAccess(todoListItemId, todoListUserId, true);
     if (todoListItem.status === status) {
         if (status === "completed") {

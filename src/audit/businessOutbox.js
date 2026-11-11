@@ -283,7 +283,8 @@ async function transactTodoLabel({ targetId, actorId, action, change, database =
 }
 
 async function transactTodoItem({ targetId, actorId, action, change, database = getAdminDatabase() }) {
-    if (!["todo.item.created", "todo.item.updated", "todo.item.moved", "todo.item.archived", "todo.item.unarchived",
+    if (!["todo.item.created", "todo.item.updated", "todo.item.moved", "todo.item.completed", "todo.item.reopened",
+        "todo.item.archived", "todo.item.unarchived",
         "todo.item.importance.updated", "todo.item.priority.updated", "todo.item.reordered",
         "todo.child.created", "todo.child.updated", "todo.child.deleted",
         "todo.comment.created", "todo.comment.updated", "todo.comment.deleted",
