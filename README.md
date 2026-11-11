@@ -463,6 +463,12 @@ intervalos no implica cero actividad. `GET /api/monitoring/services` devuelve
 las señales recientes de backend y WebSocket; frontend y almacenamiento son
 `null` porque no se ha medido su disponibilidad. Ambos endpoints exigen
 `monitoring:app` y registran el acceso antes de consultar Firestore.
+El panel permite consultar ambas métricas históricas por fechas locales y
+resolución de un minuto o una hora; muestra los intervalos devueltos y conserva
+los huecos como ausencia de datos. La consulta de servicios se solicita de forma
+independiente y muestra las señales recientes, sin interpretar un heartbeat como
+garantía de disponibilidad. Cada consulta queda auditada y un fallo se presenta
+explícitamente sin sustituirlo por datos vacíos.
 
 Las consultas necesitan los índices compuestos de
 `firestore.monitoring.indexes.json`. Incorpóralos a la configuración de índices
