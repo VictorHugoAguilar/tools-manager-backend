@@ -437,6 +437,9 @@ escribir la auditoría. Cada actualización genera un acceso auditado. La interf
 muestra hasta 25 eventos de la última hora, 24 horas o 7 días y la salud del
 recolector de la instancia que responde, no la del conjunto de instancias.
 Las métricas y estados sin fuente aparecen como «Sin datos».
+La sección de actividad identifica las consultas de almacenamiento instrumentadas
+que estén entre esos 25 eventos, con su respuesta HTTP. No representa todos los
+cambios ni sustituye la auditoría durable: la telemetría puede perderse.
 
 La sección de logs permite buscar por intervalo, servicio, nivel, nombre exacto
 de evento y `traceId`. La API `GET /api/monitoring/events` exige `from` y `to`
