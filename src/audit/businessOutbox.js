@@ -70,6 +70,10 @@ function isTodoSectionAuditEnabled() {
     return enabled;
 }
 
+function isTodoLabelAuditEnabled() {
+    return process.env.AUDIT_TODO_LABELS_ENABLED === "true";
+}
+
 function isTodoItemAuditEnabled() {
     const enabled = process.env.AUDIT_TODO_ITEMS_ENABLED === "true";
     if (enabled && !isTodoSectionAuditEnabled()) {
@@ -264,8 +268,25 @@ async function transactTodoSection({ targetId, actorId, action, change, database
     return result;
 }
 
+async function transactTodoLabel({ targetId, actorId, action, change, database = getAdminDatabase() }) {
+    if (!["todo.label.created", "todo.label.updated", "todo.label.deleted"].includes(action)) {
+        throw new Error("Acción de auditoría de etiqueta no válida.");
+    }
+    const result = await transactEntity({
+        id: "todoList", targetId, actorId, action, database, collectionPath: [],
+        allowEmptyRoot: action === "todo.label.created", change: (data) => change(data || {})
+    });
+    if (result === null) {
+        throw Object.assign(new Error("No se pudo confirmar la operación auditada de etiquetas."), { statusCode: 503 });
+    }
+    return result;
+}
+
 async function transactTodoItem({ targetId, actorId, action, change, database = getAdminDatabase() }) {
-    if (!["todo.item.created", "todo.item.moved"].includes(action)) {
+    if (!["todo.item.created", "todo.item.moved", "todo.item.archived", "todo.item.unarchived",
+        "todo.item.importance.updated", "todo.item.priority.updated", "todo.item.reordered",
+        "todo.child.created", "todo.child.updated", "todo.child.deleted",
+        "todo.comment.created", "todo.comment.updated", "todo.comment.deleted"].includes(action)) {
         throw new Error("Acción de auditoría de tarea no válida.");
     }
     const result = await transactEntity({
@@ -320,9 +341,10 @@ module.exports = {
     isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
     isRegistrationAuditEnabled, isWorkshopStorageAuditEnabled, isStorageBoxAuditEnabled, isRepairAuditEnabled,
     isCatalogAuditEnabled, isTaskBoardCatalogAuditEnabled, isTaskBoardTaskAuditEnabled,
-    isTodoProjectAuditEnabled, isTodoSectionAuditEnabled, isTodoItemAuditEnabled,
+    isTodoProjectAuditEnabled, isTodoSectionAuditEnabled, isTodoItemAuditEnabled, isTodoLabelAuditEnabled,
     isDrawingDocumentAuditEnabled, isDrawingPageAuditEnabled,
     transactTool, transactRolePermissions, transactAdminUser, transactWorkshopStorage, transactStorageBox,
     transactStorageSettings, transactRepair, transactCatalog, transactTaskBoardCatalog, transactTaskBoardTask,
-    transactTodoProject, transactTodoSection, transactTodoItem, transactDrawingDocument, transactDrawingPage, MAX_ROOT_BYTES
+    transactTodoProject, transactTodoSection, transactTodoItem, transactTodoLabel,
+    transactDrawingDocument, transactDrawingPage, MAX_ROOT_BYTES
 };

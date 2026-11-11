@@ -2,8 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { loadModuleWithMocks } = require("../helpers/loadModuleWithMocks");
 const {
-    transactTodoProject, transactTodoSection, transactTodoItem, transactDrawingDocument, transactDrawingPage,
-    isTodoSectionAuditEnabled, isTodoItemAuditEnabled
+    transactTodoProject, transactTodoSection, transactTodoItem, transactTodoLabel, transactDrawingDocument, transactDrawingPage,
+    isTodoSectionAuditEnabled, isTodoItemAuditEnabled, isTodoLabelAuditEnabled
 } = require("../../src/audit/businessOutbox");
 const { AuditOutboxWorker } = require("../../src/audit/outboxWorker");
 
@@ -58,11 +58,13 @@ function harness(initial = {}) {
         isTodoProjectAuditEnabled: () => true,
         isTodoSectionAuditEnabled: () => true,
         isTodoItemAuditEnabled: () => true,
+        isTodoLabelAuditEnabled: () => true,
         isDrawingDocumentAuditEnabled: () => true,
         isDrawingPageAuditEnabled: () => true,
         transactTodoProject: (options) => transactTodoProject({ ...options, database }),
         transactTodoSection: (options) => transactTodoSection({ ...options, database }),
         transactTodoItem: (options) => transactTodoItem({ ...options, database }),
+        transactTodoLabel: (options) => transactTodoLabel({ ...options, database }),
         transactDrawingDocument: (options) => transactDrawingDocument({ ...options, database }),
         transactDrawingPage: (options) => transactDrawingPage({ ...options, database })
     };
@@ -118,6 +120,19 @@ test("item audit requires section and project audit", () => {
     }
 });
 
+test("label audit is disabled by default and enabled explicitly", () => {
+    const previous = process.env.AUDIT_TODO_LABELS_ENABLED;
+    try {
+        delete process.env.AUDIT_TODO_LABELS_ENABLED;
+        assert.equal(isTodoLabelAuditEnabled(), false);
+        process.env.AUDIT_TODO_LABELS_ENABLED = "true";
+        assert.equal(isTodoLabelAuditEnabled(), true);
+    } finally {
+        if (previous === undefined) delete process.env.AUDIT_TODO_LABELS_ENABLED;
+        else process.env.AUDIT_TODO_LABELS_ENABLED = previous;
+    }
+});
+
 test("item creation and moves atomically preserve relations, recurrence, activity and positions", async () => {
     const h = harness({
         authUsers: { owner: { firstName: "Ada" }, editor: { firstName: "Editor" } },
@@ -154,6 +169,211 @@ test("item creation and moves atomically preserve relations, recurrence, activit
         getFirestoreDatabase: () => ({ collection: () => ({ doc: () => ({ create: async (e) => published.push(e) }) }) }) });
     await worker.flush();
     assert.equal(published.length, 4);
+});
+
+test("item priority, importance, archive and ordering are audited with reminder cancellation", async () => {
+    const h = harness({
+        authUsers: { owner: { firstName: "Ada" } },
+        todoList: {
+            TodoListItems: {
+                one: { title: "private title", createdByUserId: "owner", todoListId: "", sectionId: "",
+                    priority: 4, isImportant: false, position: 0 },
+                two: { title: "other", createdByUserId: "owner", todoListId: "", sectionId: "", position: 1 }
+            },
+            TodoListReminders: { one: {
+                scheduled: { status: "scheduled" },
+                processing: { status: "processing", processingLeaseUntil: "2099" },
+                delivered: { status: "triggered" }
+            } }
+        }
+    });
+    assert.equal((await h.todo.todoListSetItemImportant("one", true, "owner")).isImportant, true);
+    assert.equal((await h.todo.todoListSetItemPriority("one", 1, "owner")).priority, 1);
+    assert.equal((await h.todo.todoListSetItemPosition("one", 1, "owner")).position, 1);
+    assert.equal(h.root.todoList.TodoListItems.two.position, 0);
+    assert.equal((await h.todo.todoListSetItemArchive("one", true, "owner")).isArchived, true);
+    const reminders = h.root.todoList.TodoListReminders.one;
+    assert.equal(reminders.scheduled.status, "cancelled");
+    assert.equal(reminders.processing.status, "cancelled");
+    assert.equal(reminders.processing.processingLeaseUntil, undefined);
+    assert.equal(reminders.delivered.status, "triggered");
+    assert.equal((await h.todo.todoListSetItemArchive("one", false, "owner")).isArchived, false);
+    const events = Object.values(h.root.auditOutbox);
+    assert.deepEqual(events.map((event) => event.action), [
+        "todo.item.importance.updated", "todo.item.priority.updated", "todo.item.reordered",
+        "todo.item.archived", "todo.item.unarchived"
+    ]);
+    assert.doesNotMatch(JSON.stringify(events), /private title/);
+    assert.equal(Object.keys(h.root.todoList.TodoListActivities.one).length, 4);
+    const published = [];
+    const worker = new AuditOutboxWorker({ getRealtimeDatabase: () => h.database,
+        getFirestoreDatabase: () => ({ collection: () => ({ doc: () => ({ create: async (event) => published.push(event) }) }) }) });
+    await worker.flush();
+    assert.equal(published.length, 5);
+});
+
+test("item property updates recheck permissions and fail closed on database failure", async () => {
+    const h = harness({
+        authUsers: { owner: {}, editor: {} },
+        todoList: {
+            TodoLists: { project: { ownerUserId: "owner" } },
+            TodoListMembers: { project: { editor: { role: "editor" } } },
+            TodoListItems: { item: { title: "task", todoListId: "project", priority: 4 } }
+        }
+    });
+    h.retry((root) => { root.todoList.TodoListMembers.project.editor.role = "viewer"; });
+    await assert.rejects(h.todo.todoListSetItemPriority("item", 1, "editor"), { statusCode: 403 });
+    assert.equal(h.root.todoList.TodoListItems.item.priority, 4);
+    assert.equal(h.root.auditOutbox, undefined);
+    h.fail();
+    await assert.rejects(h.todo.todoListSetItemArchive("item", true, "owner"), /database unavailable/);
+    assert.equal(h.root.todoList.TodoListItems.item.isArchived, undefined);
+    assert.equal(h.root.auditOutbox, undefined);
+});
+
+test("labels are audited atomically with relation cleanup and sanitized events", async () => {
+    const h = harness({ todoList: { TodoListLabels: { other: { name: "same", ownerUserId: "other" } } } });
+    const label = await h.todo.todoListCreateLabel({ name: "private", color: "#123456" }, "owner");
+    const updated = await h.todo.todoListUpdateLabel(label.id, { name: "secret" }, "owner");
+    assert.equal(updated.name, "secret");
+    h.root.todoList.TodoListItemLabels = { first: { [label.id]: true, other: true }, second: { [label.id]: true } };
+    await h.todo.todoListDeleteLabel(label.id, "owner");
+    assert.equal(h.root.todoList.TodoListLabels[label.id], undefined);
+    assert.deepEqual(h.root.todoList.TodoListItemLabels.first, { other: true });
+    assert.deepEqual(h.root.todoList.TodoListItemLabels.second, {});
+    assert.equal(h.root.todoList.TodoListLabels.other.name, "same");
+    const events = Object.values(h.root.auditOutbox);
+    assert.deepEqual(events.map((event) => event.action), ["todo.label.created", "todo.label.updated", "todo.label.deleted"]);
+    assert.doesNotMatch(JSON.stringify(events), /private|secret|123456/);
+    const published = [];
+    const worker = new AuditOutboxWorker({ getRealtimeDatabase: () => h.database,
+        getFirestoreDatabase: () => ({ collection: () => ({ doc: () => ({ create: async (event) => published.push(event) }) }) }) });
+    await worker.flush();
+    assert.equal(published.length, 3);
+});
+
+test("label uniqueness and ownership are rechecked on transaction retry", async () => {
+    const h = harness({ todoList: { TodoListLabels: { original: { name: "original", ownerUserId: "owner" } } } });
+    h.retry((root) => { root.todoList.TodoListLabels.concurrent = { name: "Private", ownerUserId: "owner" }; });
+    await assert.rejects(h.todo.todoListCreateLabel({ name: "private" }, "owner"), { statusCode: 409 });
+    h.retry((root) => { root.todoList.TodoListLabels.original.ownerUserId = "other"; });
+    await assert.rejects(h.todo.todoListDeleteLabel("original", "owner"), { statusCode: 404 });
+    assert.equal(h.root.todoList.TodoListLabels.original.name, "original");
+    assert.equal(h.root.auditOutbox, undefined);
+    h.fail();
+    await assert.rejects(h.todo.todoListCreateLabel({ name: "new" }, "owner"), /database unavailable/);
+    assert.equal(h.root.auditOutbox, undefined);
+});
+
+test("label audit rejects invalid updates and oversized databases without changes", async () => {
+    const h = harness({ todoList: { TodoListLabels: { label: { name: "original", ownerUserId: "owner" } } } });
+    await assert.rejects(h.todo.todoListUpdateLabel("label", {}, "owner"), { statusCode: 400 });
+    await assert.rejects(h.todo.todoListUpdateLabel("label", { color: "invalid" }, "owner"), { statusCode: 400 });
+    await assert.rejects(h.todo.todoListDeleteLabel("label", "other"), { statusCode: 404 });
+    h.root.large = "x".repeat(8 * 1024 * 1024);
+    await assert.rejects(h.todo.todoListDeleteLabel("label", "owner"), { statusCode: 503 });
+    assert.equal(h.root.todoList.TodoListLabels.label.name, "original");
+    assert.equal(h.root.auditOutbox, undefined);
+});
+
+test("child mutations atomically preserve activity and publish sanitized audit events", async () => {
+    const h = harness({ todoList: {
+        TodoLists: { project: { ownerUserId: "owner" } },
+        TodoListMembers: { project: { editor: { role: "editor" }, viewer: { role: "viewer" } } },
+        TodoListItems: { item: { todoListId: "project" } },
+        TodoListChildItems: { existing: { todoListItemId: "item", position: 0 } }
+    } });
+    const child = await h.todo.todoListCreateChild("item", { title: "private child" }, "editor");
+    assert.equal(child.position, 1);
+    const updated = await h.todo.todoListUpdateChild(child.id, { title: "secret", status: "completed", position: 3 }, "editor");
+    assert.equal(updated.status, "completed");
+    assert.ok(updated.completedAt);
+    await assert.rejects(h.todo.todoListDeleteChild(child.id, "viewer"), { statusCode: 403 });
+    await h.todo.todoListDeleteChild(child.id, "owner");
+    assert.equal(h.root.todoList.TodoListChildItems[child.id], undefined);
+    assert.deepEqual(Object.values(h.root.todoList.TodoListActivities.item).map((activity) => activity.action),
+        ["child-created", "child-updated", "child-deleted"]);
+    const events = Object.values(h.root.auditOutbox);
+    assert.deepEqual(events.map((event) => event.action), ["todo.child.created", "todo.child.updated", "todo.child.deleted"]);
+    assert.ok(events.every((event) => event.targetId === child.id));
+    assert.doesNotMatch(JSON.stringify(events), /private|secret/);
+    const published = [];
+    const worker = new AuditOutboxWorker({ getRealtimeDatabase: () => h.database,
+        getFirestoreDatabase: () => ({ collection: () => ({ doc: () => ({ create: async (event) => published.push(event) }) }) }) });
+    await worker.flush();
+    assert.equal(published.length, 3);
+});
+
+test("child mutations recheck access and current data on retries and database failure", async () => {
+    const h = harness({ todoList: {
+        TodoLists: { project: { ownerUserId: "owner" } },
+        TodoListMembers: { project: { editor: { role: "editor" } } },
+        TodoListItems: { item: { todoListId: "project" } },
+        TodoListChildItems: { child: { todoListItemId: "item", title: "old", position: 0 } }
+    } });
+    h.retry((root) => { root.todoList.TodoListMembers.project.editor.role = "viewer"; });
+    await assert.rejects(h.todo.todoListUpdateChild("child", { title: "new" }, "editor"), { statusCode: 403 });
+    assert.equal(h.root.todoList.TodoListChildItems.child.title, "old");
+    assert.equal(h.root.auditOutbox, undefined);
+    h.retry((root) => { delete root.todoList.TodoListChildItems.child; });
+    await assert.rejects(h.todo.todoListDeleteChild("child", "owner"), { statusCode: 404 });
+    assert.equal(h.root.auditOutbox, undefined);
+    h.fail();
+    await assert.rejects(h.todo.todoListCreateChild("item", { title: "new" }, "owner"), /database unavailable/);
+    assert.equal(h.root.auditOutbox, undefined);
+});
+
+test("comment changes enforce author and owner permissions and publish sanitized audit events", async () => {
+    const h = harness({
+        authUsers: { editor: { firstName: "Ada", lastName: "Lovelace" } },
+        todoList: {
+            TodoLists: { project: { ownerUserId: "owner" } },
+            TodoListMembers: { project: { editor: { role: "editor" }, other: { role: "editor" } } },
+            TodoListItems: { item: { todoListId: "project" } }
+        }
+    });
+    const comment = await h.todo.todoListAddComment("item", { content: "private text" }, "editor");
+    assert.equal(comment.authorName, "Ada Lovelace");
+    await assert.rejects(h.todo.todoListUpdateComment(comment.id, { content: "other" }, "owner"), { statusCode: 403 });
+    await assert.rejects(h.todo.todoListDeleteComment(comment.id, "other"), { statusCode: 403 });
+    const updated = await h.todo.todoListUpdateComment(comment.id, { content: "secret" }, "editor");
+    assert.equal(updated.content, "secret");
+    await h.todo.todoListDeleteComment(comment.id, "owner");
+    assert.equal(h.root.todoList.TodoListItemComments.item[comment.id], undefined);
+    assert.deepEqual(Object.values(h.root.todoList.TodoListActivities.item).map((activity) => activity.action),
+        ["comment-added", "comment-updated", "comment-deleted"]);
+    const events = Object.values(h.root.auditOutbox);
+    assert.deepEqual(events.map((event) => event.action), ["todo.comment.created", "todo.comment.updated", "todo.comment.deleted"]);
+    assert.ok(events.every((event) => event.targetId === comment.id));
+    assert.doesNotMatch(JSON.stringify(events), /private|secret|Ada|Lovelace/);
+    const published = [];
+    const worker = new AuditOutboxWorker({ getRealtimeDatabase: () => h.database,
+        getFirestoreDatabase: () => ({ collection: () => ({ doc: () => ({ create: async (event) => published.push(event) }) }) }) });
+    await worker.flush();
+    assert.equal(published.length, 3);
+});
+
+test("comment changes recheck author, access and user status on transaction retry", async () => {
+    const h = harness({
+        authUsers: { editor: { firstName: "Ada" } },
+        todoList: {
+            TodoLists: { project: { ownerUserId: "owner" } },
+            TodoListMembers: { project: { editor: { role: "editor" } } },
+            TodoListItems: { item: { todoListId: "project" } },
+            TodoListItemComments: { item: { comment: { todoListItemId: "item", userId: "editor", content: "old" } } }
+        }
+    });
+    h.retry((root) => { root.todoList.TodoListItemComments.item.comment.userId = "owner"; });
+    await assert.rejects(h.todo.todoListUpdateComment("comment", { content: "new" }, "editor"), { statusCode: 403 });
+    h.retry((root) => { root.todoList.TodoListMembers.project.editor.role = "viewer"; });
+    await assert.rejects(h.todo.todoListDeleteComment("comment", "editor"), { statusCode: 403 });
+    h.root.todoList.TodoListMembers.project.editor.role = "editor";
+    h.retry((root) => { root.authUsers.editor.isActive = false; });
+    await assert.rejects(h.todo.todoListAddComment("item", { content: "new" }, "editor"), { statusCode: 404 });
+    assert.equal(h.root.auditOutbox, undefined);
+    h.fail();
+    await assert.rejects(h.todo.todoListDeleteComment("comment", "owner"), /database unavailable/);
+    assert.equal(h.root.todoList.TodoListItemComments.item.comment.content, "old");
 });
 
 test("item transactions revalidate sections, permissions and assignees on retry", async () => {

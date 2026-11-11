@@ -2,7 +2,7 @@ const { randomUUID } = require("node:crypto");
 const { getAdminDatabase } = require("../config/firebaseAdmin");
 const {
     isTodoProjectAuditEnabled, transactTodoProject, isTodoSectionAuditEnabled, transactTodoSection,
-    isTodoItemAuditEnabled, transactTodoItem
+    isTodoItemAuditEnabled, transactTodoItem, isTodoLabelAuditEnabled, transactTodoLabel
 } = require("../audit/businessOutbox");
 const {
     todoListDeleteAttachment,
@@ -874,6 +874,24 @@ async function todoListGetLabels(todoListUserId) {
 
 async function todoListCreateLabel(payload, todoListUserId) {
     const todoListName = todoListNormalizeName(payload?.name, "El nombre de la etiqueta");
+    if (isTodoLabelAuditEnabled()) {
+        todoListValidateAuditId(todoListUserId);
+        const id = randomUUID();
+        const now = new Date().toISOString();
+        return transactTodoLabel({ targetId: id, actorId: todoListUserId, action: "todo.label.created",
+            change: (data) => {
+                const labels = data.TodoListLabels || {};
+                if (Object.hasOwn(labels, id)) throw todoListError("La etiqueta ya existe.", 409);
+                if (Object.values(labels).some((label) => label?.ownerUserId === todoListUserId &&
+                    label.name.toLocaleLowerCase() === todoListName.toLocaleLowerCase())) {
+                    throw todoListError("Ya existe una etiqueta con ese nombre.", 409);
+                }
+                const label = { name: todoListName, color: todoListValidateLabelColor(payload?.color || "mint"),
+                    ownerUserId: todoListUserId, createdAt: now, updatedAt: now };
+                data.TodoListLabels = { ...labels, [id]: label };
+                return { value: data, result: { id, ...label } };
+            } });
+    }
     const todoListLabels = await todoListGetLabels(todoListUserId);
     if (todoListLabels.some((label) => label.name.toLocaleLowerCase() === todoListName.toLocaleLowerCase())) {
         throw todoListError("Ya existe una etiqueta con ese nombre.", 409);
@@ -892,6 +910,30 @@ async function todoListCreateLabel(payload, todoListUserId) {
 }
 
 async function todoListUpdateLabel(todoListLabelId, payload, todoListUserId) {
+    if (isTodoLabelAuditEnabled()) {
+        todoListValidateAuditId(todoListLabelId);
+        todoListValidateAuditId(todoListUserId);
+        const now = new Date().toISOString();
+        return transactTodoLabel({ targetId: todoListLabelId, actorId: todoListUserId, action: "todo.label.updated",
+            change: (data) => {
+                const labels = data.TodoListLabels || {};
+                const label = Object.hasOwn(labels, todoListLabelId) ? labels[todoListLabelId] : null;
+                if (!label || label.ownerUserId !== todoListUserId) throw todoListError("La etiqueta no existe.", 404);
+                const changes = {};
+                if (Object.hasOwn(payload || {}, "name")) {
+                    const name = todoListNormalizeName(payload.name, "El nombre de la etiqueta");
+                    if (Object.entries(labels).some(([id, other]) => id !== todoListLabelId &&
+                        other?.ownerUserId === todoListUserId && other.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+                        throw todoListError("Ya existe una etiqueta con ese nombre.", 409);
+                    }
+                    changes.name = name;
+                }
+                if (Object.hasOwn(payload || {}, "color")) changes.color = todoListValidateLabelColor(payload.color);
+                if (!Object.keys(changes).length) throw todoListError("No hay cambios para guardar.");
+                Object.assign(label, changes, { updatedAt: now });
+                return { value: data, result: { id: todoListLabelId, ...label } };
+            } });
+    }
     const todoListLabelRef = todoListRef(`TodoListLabels/${todoListLabelId}`);
     const todoListSnapshot = await todoListLabelRef.get();
     if (!todoListSnapshot.exists() || todoListSnapshot.val().ownerUserId !== todoListUserId) {
@@ -914,6 +956,22 @@ async function todoListUpdateLabel(todoListLabelId, payload, todoListUserId) {
 }
 
 async function todoListDeleteLabel(todoListLabelId, todoListUserId) {
+    if (isTodoLabelAuditEnabled()) {
+        todoListValidateAuditId(todoListLabelId);
+        todoListValidateAuditId(todoListUserId);
+        await transactTodoLabel({ targetId: todoListLabelId, actorId: todoListUserId, action: "todo.label.deleted",
+            change: (data) => {
+                const labels = data.TodoListLabels || {};
+                const label = Object.hasOwn(labels, todoListLabelId) ? labels[todoListLabelId] : null;
+                if (!label || label.ownerUserId !== todoListUserId) throw todoListError("La etiqueta no existe.", 404);
+                delete labels[todoListLabelId];
+                for (const relations of Object.values(data.TodoListItemLabels || {})) {
+                    if (relations && Object.hasOwn(relations, todoListLabelId)) delete relations[todoListLabelId];
+                }
+                return { value: data, result: true };
+            } });
+        return;
+    }
     const todoListLabelRef = todoListRef(`TodoListLabels/${todoListLabelId}`);
     const todoListLabelSnapshot = await todoListLabelRef.get();
     if (!todoListLabelSnapshot.exists() || todoListLabelSnapshot.val().ownerUserId !== todoListUserId) {
@@ -1646,6 +1704,33 @@ async function todoListSetItemStatus(todoListItemId, status, todoListUserId) {
 
 async function todoListSetItemArchive(todoListItemId, isArchived, todoListUserId) {
     if (typeof isArchived !== "boolean") throw todoListError("El estado de archivo no es válido.");
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListItemId);
+        todoListValidateAuditId(todoListUserId);
+        const now = new Date().toISOString();
+        const activityId = randomUUID();
+        await transactTodoItem({ targetId: todoListItemId, actorId: todoListUserId,
+            action: isArchived ? "todo.item.archived" : "todo.item.unarchived",
+            change: (data) => {
+                const item = todoListAuditedItem(data, todoListItemId, todoListUserId);
+                item.isArchived = isArchived;
+                item.updatedAt = now;
+                if (isArchived) {
+                    const allReminders = data.TodoListReminders || {};
+                    const reminders = Object.hasOwn(allReminders, todoListItemId) ? allReminders[todoListItemId] : {};
+                    for (const reminder of Object.values(reminders || {})) {
+                        if (["scheduled", "processing"].includes(reminder.status)) {
+                            reminder.status = "cancelled";
+                            delete reminder.processingLeaseUntil;
+                        }
+                    }
+                }
+                todoListAuditedActivity(data, todoListItemId, activityId, todoListUserId,
+                    isArchived ? "archived" : "unarchived", null, null, now);
+                return { value: data, result: true };
+            } });
+        return todoListGetItem(todoListItemId, todoListUserId);
+    }
     const { item: todoListItem } = await todoListGetItemAccess(todoListItemId, todoListUserId, true);
     const todoListUpdates = {
         [`TodoListItems/${todoListItemId}/isArchived`]: isArchived,
@@ -1667,6 +1752,10 @@ async function todoListSetItemArchive(todoListItemId, isArchived, todoListUserId
 
 async function todoListSetItemImportant(todoListItemId, isImportant, todoListUserId) {
     if (typeof isImportant !== "boolean") throw todoListError("La importancia debe ser verdadera o falsa.");
+    if (isTodoItemAuditEnabled()) {
+        return todoListAuditedItemProperty(todoListItemId, todoListUserId,
+            "isImportant", isImportant, "todo.item.importance.updated", "importance");
+    }
     const { item: todoListItem } = await todoListGetItemAccess(todoListItemId, todoListUserId, true);
     await todoListRef(`TodoListItems/${todoListItemId}`).update({
         isImportant,
@@ -1678,6 +1767,10 @@ async function todoListSetItemImportant(todoListItemId, isImportant, todoListUse
 
 async function todoListSetItemPriority(todoListItemId, priority, todoListUserId) {
     const todoListPriority = todoListValidatePriority(priority);
+    if (isTodoItemAuditEnabled()) {
+        return todoListAuditedItemProperty(todoListItemId, todoListUserId,
+            "priority", todoListPriority, "todo.item.priority.updated", "priority");
+    }
     const { item: todoListItem } = await todoListGetItemAccess(todoListItemId, todoListUserId, true);
     await todoListRef(`TodoListItems/${todoListItemId}`).update({
         priority: todoListPriority,
@@ -1685,6 +1778,23 @@ async function todoListSetItemPriority(todoListItemId, priority, todoListUserId)
     });
     await todoListAddActivity(todoListItemId, todoListUserId, "priority", todoListItem.priority, todoListPriority);
     return todoListGetItem(todoListItemId, todoListUserId);
+}
+
+async function todoListAuditedItemProperty(itemId, userId, property, value, action, activity) {
+    todoListValidateAuditId(itemId);
+    todoListValidateAuditId(userId);
+    const now = new Date().toISOString();
+    const activityId = randomUUID();
+    await transactTodoItem({ targetId: itemId, actorId: userId, action,
+        change: (data) => {
+            const item = todoListAuditedItem(data, itemId, userId);
+            const previousValue = item[property] ?? null;
+            item[property] = value;
+            item.updatedAt = now;
+            todoListAuditedActivity(data, itemId, activityId, userId, activity, previousValue, value, now);
+            return { value: data, result: true };
+        } });
+    return todoListGetItem(itemId, userId);
 }
 
 async function todoListMoveItem(todoListItemId, todoListId, sectionId, todoListUserId, position) {
@@ -1798,6 +1908,23 @@ async function todoListMoveItem(todoListItemId, todoListId, sectionId, todoListU
 }
 
 async function todoListSetItemPosition(todoListItemId, position, todoListUserId) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListItemId);
+        todoListValidateAuditId(todoListUserId);
+        await transactTodoItem({ targetId: todoListItemId, actorId: todoListUserId, action: "todo.item.reordered",
+            change: (data) => {
+                const item = todoListAuditedItem(data, todoListItemId, todoListUserId);
+                if (!Number.isInteger(position) || position < 0) throw todoListError("La posición no es válida.");
+                const siblings = Object.entries(data.TodoListItems).filter(([id, other]) =>
+                    id !== todoListItemId && other.todoListId === item.todoListId &&
+                    other.sectionId === item.sectionId && other.isArchived !== true)
+                    .sort((left, right) => left[1].position - right[1].position);
+                siblings.splice(Math.min(position, siblings.length), 0, [todoListItemId, item]);
+                siblings.forEach(([, value], index) => { value.position = index; });
+                return { value: data, result: true };
+            } });
+        return todoListGetItem(todoListItemId, todoListUserId);
+    }
     const { item: todoListItem } = await todoListGetItemAccess(todoListItemId, todoListUserId, true);
     if (!Number.isInteger(position) || position < 0) throw todoListError("La posición no es válida.");
     const todoListItems = (await todoListRef("TodoListItems").get()).val() || {};
@@ -1841,6 +1968,28 @@ async function todoListListChildren(todoListItemId, todoListUserId) {
 }
 
 async function todoListCreateChild(todoListItemId, payload, todoListUserId) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListItemId);
+        todoListValidateAuditId(todoListUserId);
+        const id = randomUUID();
+        const activityId = randomUUID();
+        const now = new Date().toISOString();
+        const title = todoListNormalizeName(payload?.title, "El título de la subtarea", 200);
+        return transactTodoItem({ targetId: id, actorId: todoListUserId, action: "todo.child.created",
+            change: (data) => {
+                todoListAuditedItem(data, todoListItemId, todoListUserId);
+                const children = data.TodoListChildItems || {};
+                if (Object.hasOwn(children, id)) throw todoListError("La subtarea ya existe.", 409);
+                const child = {
+                    todoListItemId, title, status: "pending",
+                    position: Object.values(children).filter((entry) => entry?.todoListItemId === todoListItemId).length,
+                    createdAt: now, completedAt: ""
+                };
+                data.TodoListChildItems = { ...children, [id]: child };
+                todoListAuditedActivity(data, todoListItemId, activityId, todoListUserId, "child-created", null, title, now);
+                return { value: data, result: { id, ...child } };
+            } });
+    }
     const { item: todoListParent } = await todoListGetItemAccess(todoListItemId, todoListUserId, true);
     const todoListChildren = await todoListListChildren(todoListItemId, todoListUserId);
     const todoListChildId = randomUUID();
@@ -1859,6 +2008,37 @@ async function todoListCreateChild(todoListItemId, payload, todoListUserId) {
 }
 
 async function todoListUpdateChild(todoListChildId, payload, todoListUserId) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListChildId);
+        todoListValidateAuditId(todoListUserId);
+        const now = new Date().toISOString();
+        const activityId = randomUUID();
+        return transactTodoItem({ targetId: todoListChildId, actorId: todoListUserId, action: "todo.child.updated",
+            change: (data) => {
+                const children = data.TodoListChildItems || {};
+                const child = Object.hasOwn(children, todoListChildId) ? children[todoListChildId] : null;
+                if (!child) throw todoListError("La subtarea no existe.", 404);
+                todoListValidateAuditId(child.todoListItemId);
+                todoListAuditedItem(data, child.todoListItemId, todoListUserId);
+                const changes = {};
+                if (Object.hasOwn(payload || {}, "title")) {
+                    changes.title = todoListNormalizeName(payload.title, "El título de la subtarea", 200);
+                }
+                if (Object.hasOwn(payload || {}, "status")) {
+                    if (!["pending", "completed"].includes(payload.status)) throw todoListError("El estado de la subtarea no es válido.");
+                    changes.status = payload.status;
+                    changes.completedAt = payload.status === "completed" ? now : "";
+                }
+                if (Object.hasOwn(payload || {}, "position")) {
+                    if (!Number.isInteger(payload.position) || payload.position < 0) throw todoListError("La posición no es válida.");
+                    changes.position = payload.position;
+                }
+                if (!Object.keys(changes).length) throw todoListError("No hay cambios para guardar.");
+                Object.assign(child, changes);
+                todoListAuditedActivity(data, child.todoListItemId, activityId, todoListUserId, "child-updated", null, changes, now);
+                return { value: data, result: { id: todoListChildId, ...child } };
+            } });
+    }
     const todoListChildSnapshot = await todoListRef(`TodoListChildItems/${todoListChildId}`).get();
     if (!todoListChildSnapshot.exists()) throw todoListError("La subtarea no existe.", 404);
     const todoListChild = { id: todoListChildId, ...todoListChildSnapshot.val() };
@@ -1883,6 +2063,24 @@ async function todoListUpdateChild(todoListChildId, payload, todoListUserId) {
 }
 
 async function todoListDeleteChild(todoListChildId, todoListUserId) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListChildId);
+        todoListValidateAuditId(todoListUserId);
+        const now = new Date().toISOString();
+        const activityId = randomUUID();
+        await transactTodoItem({ targetId: todoListChildId, actorId: todoListUserId, action: "todo.child.deleted",
+            change: (data) => {
+                const children = data.TodoListChildItems || {};
+                const child = Object.hasOwn(children, todoListChildId) ? children[todoListChildId] : null;
+                if (!child) throw todoListError("La subtarea no existe.", 404);
+                todoListValidateAuditId(child.todoListItemId);
+                todoListAuditedItem(data, child.todoListItemId, todoListUserId);
+                delete children[todoListChildId];
+                todoListAuditedActivity(data, child.todoListItemId, activityId, todoListUserId, "child-deleted", child.title, null, now);
+                return { value: data, result: true };
+            } });
+        return;
+    }
     const todoListChildSnapshot = await todoListRef(`TodoListChildItems/${todoListChildId}`).get();
     if (!todoListChildSnapshot.exists()) throw todoListError("La subtarea no existe.", 404);
     const todoListChild = todoListChildSnapshot.val();
@@ -1892,6 +2090,31 @@ async function todoListDeleteChild(todoListChildId, todoListUserId) {
 }
 
 async function todoListAddComment(todoListItemId, payload, todoListUserId) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListItemId);
+        todoListValidateAuditId(todoListUserId);
+        const id = randomUUID();
+        const activityId = randomUUID();
+        const now = new Date().toISOString();
+        return transactTodoItem({ targetId: id, actorId: todoListUserId, action: "todo.comment.created",
+            change: (data, root) => {
+                todoListAuditedItem(data, todoListItemId, todoListUserId);
+                const users = root.authUsers || {};
+                const user = Object.hasOwn(users, todoListUserId) ? users[todoListUserId] : null;
+                if (!user || user.isActive === false) throw todoListError("El usuario no está disponible.", 404);
+                const allComments = data.TodoListItemComments || {};
+                const comments = Object.hasOwn(allComments, todoListItemId) ? allComments[todoListItemId] : {};
+                if (Object.hasOwn(comments || {}, id)) throw todoListError("El comentario ya existe.", 409);
+                const comment = {
+                    todoListItemId, userId: todoListUserId,
+                    content: todoListNormalizeName(payload?.content, "El comentario", 4000), createdAt: now, updatedAt: now
+                };
+                data.TodoListItemComments = { ...allComments, [todoListItemId]: { ...comments, [id]: comment } };
+                todoListAuditedActivity(data, todoListItemId, activityId, todoListUserId, "comment-added", null, null, now);
+                return { value: data, result: { id, ...comment,
+                    authorName: `${user.firstName || ""} ${user.lastName || ""}`.trim() } };
+            } });
+    }
     await todoListGetItemAccess(todoListItemId, todoListUserId, true);
     const todoListUser = await todoListGetUser(todoListUserId);
     const todoListCommentId = randomUUID();
@@ -1926,6 +2149,21 @@ async function todoListListComments(todoListItemId, todoListUserId) {
 }
 
 async function todoListUpdateComment(todoListCommentId, payload, todoListUserId) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListCommentId);
+        todoListValidateAuditId(todoListUserId);
+        const now = new Date().toISOString();
+        const activityId = randomUUID();
+        return transactTodoItem({ targetId: todoListCommentId, actorId: todoListUserId, action: "todo.comment.updated",
+            change: (data) => {
+                const { itemId, comment } = todoListAuditedComment(data, todoListCommentId, todoListUserId);
+                if (comment.userId !== todoListUserId) throw todoListError("Solo el autor puede editar este comentario.", 403);
+                comment.content = todoListNormalizeName(payload?.content, "El comentario", 4000);
+                comment.updatedAt = now;
+                todoListAuditedActivity(data, itemId, activityId, todoListUserId, "comment-updated", null, null, now);
+                return { value: data, result: { id: todoListCommentId, ...comment } };
+            } });
+    }
     const todoListCommentsSnapshot = await todoListRef("TodoListItemComments").get();
     let todoListCommentEntry;
     for (const [todoListItemId, comments] of Object.entries(todoListCommentsSnapshot.val() || {})) {
@@ -1950,6 +2188,24 @@ async function todoListUpdateComment(todoListCommentId, payload, todoListUserId)
 }
 
 async function todoListDeleteComment(todoListCommentId, todoListUserId) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListCommentId);
+        todoListValidateAuditId(todoListUserId);
+        const now = new Date().toISOString();
+        const activityId = randomUUID();
+        await transactTodoItem({ targetId: todoListCommentId, actorId: todoListUserId, action: "todo.comment.deleted",
+            change: (data) => {
+                const { itemId, item, comment } = todoListAuditedComment(data, todoListCommentId, todoListUserId);
+                const ownerId = item.todoListId ? data.TodoLists[item.todoListId].ownerUserId : item.createdByUserId;
+                if (comment.userId !== todoListUserId && ownerId !== todoListUserId) {
+                    throw todoListError("No tienes permiso para eliminar este comentario.", 403);
+                }
+                delete data.TodoListItemComments[itemId][todoListCommentId];
+                todoListAuditedActivity(data, itemId, activityId, todoListUserId, "comment-deleted", null, null, now);
+                return { value: data, result: true };
+            } });
+        return;
+    }
     const todoListCommentsSnapshot = await todoListRef("TodoListItemComments").get();
     let todoListCommentEntry;
     for (const [todoListItemId, comments] of Object.entries(todoListCommentsSnapshot.val() || {})) {
@@ -1965,6 +2221,16 @@ async function todoListDeleteComment(todoListCommentId, todoListUserId) {
     }
     await todoListRef(`TodoListItemComments/${todoListCommentEntry.itemId}/${todoListCommentId}`).remove();
     await todoListAddActivity(todoListCommentEntry.itemId, todoListUserId, "comment-deleted");
+}
+
+function todoListAuditedComment(data, commentId, userId) {
+    for (const [itemId, comments] of Object.entries(data.TodoListItemComments || {})) {
+        if (comments && Object.hasOwn(comments, commentId) && comments[commentId]) {
+            todoListValidateAuditId(itemId);
+            return { itemId, item: todoListAuditedItem(data, itemId, userId), comment: comments[commentId] };
+        }
+    }
+    throw todoListError("El comentario no existe.", 404);
 }
 
 async function todoListAddAttachment(todoListItemId, todoListFile, todoListUserId) {

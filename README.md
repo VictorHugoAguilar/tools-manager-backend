@@ -116,8 +116,10 @@ auditan hitos y cambios de acceso, no cada actualización WebSocket.
 | Tablero: comentarios y adjuntos | Auditoría experimental `AUDIT_TASK_BOARD_TASKS_ENABLED`: `task_board.comment.created/updated/deleted` y `task_board.attachment.created/deleted`. | Validar la integración con Storage y diseñar la conciliación de archivos conservados; eventos sin texto, nombres ni URL. |
 | Lista de tareas: proyectos, orden, archivo y miembros | Auditoría experimental `AUDIT_TODO_PROJECTS_ENABLED`: `todo.project.created/updated/deleted/archived/restored/reordered` y `todo.member.added/removed`. | Validar en Firebase y completar la auditoría de las operaciones relacionadas antes de habilitar. Lecturas: agregados. |
 | Lista de tareas: secciones | Auditoría experimental `AUDIT_TODO_SECTIONS_ENABLED`: `todo.section.created/updated/deleted/reordered`. | Validar en Firebase y completar las operaciones relacionadas antes de habilitar. La eliminación de un proyecto audita el proyecto, no cada sección eliminada en cascada. |
-| Lista de tareas: tareas y subtareas | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED` para `todo.item.created` y `todo.item.moved`. La duplicación utiliza el alta y genera `todo.item.created`. | Faltan `todo.item.updated/deleted/completed/reopened/archived/importance.updated/priority.updated/reordered/duplicated` y `todo.child.created/updated/deleted`. La duplicación no valida atómicamente la tarea de origen. |
-| Lista de tareas: etiquetas, comentarios, adjuntos y recordatorios | Sin auditoría durable específica. | Auditoría `todo.label.created/updated/deleted`, `todo.comment.created/updated/deleted`, `todo.attachment.created/deleted` y `todo.reminder.created/updated/deleted`. No guardar contenido, texto, nombres ni URL. |
+| Lista de tareas: tareas y subtareas | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.item.created/moved/archived/unarchived/reordered`, `todo.item.importance.updated`, `todo.item.priority.updated` y `todo.child.created/updated/deleted`. La duplicación utiliza el alta y genera `todo.item.created`. | Faltan `todo.item.updated/deleted/completed/reopened/duplicated`. La duplicación no valida atómicamente la tarea de origen. |
+| Lista de tareas: etiquetas | Auditoría experimental `AUDIT_TODO_LABELS_ENABLED`: `todo.label.created/updated/deleted`. | Validar en Firebase y completar las rutas que modifican relaciones de etiquetas antes de habilitar. |
+| Lista de tareas: comentarios | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.comment.created/updated/deleted`. | Validar permisos y concurrencia en Firebase. No guardar contenido ni nombres en los eventos. |
+| Lista de tareas: adjuntos y recordatorios | Sin auditoría durable específica. | Auditoría `todo.attachment.created/deleted` y `todo.reminder.created/updated/deleted`. No guardar contenido, texto, nombres ni URL. |
 | Lista de tareas: recurrencia, envío de recordatorios y notificaciones | Sin auditoría durable específica; existen procesos automáticos. | Diseñar eventos idempotentes `todo.recurrence.created` y `todo.reminder.delivered` para cambios de negocio confirmados por el sistema; separar fallos de entrega como telemetría `todo.reminder.delivery.failed`. Lectura de notificaciones y marca de leída: agregados, sin auditoría durable. El actor automático debe ser una identidad de sistema explícita, no un usuario inventado. |
 | Dibujar: documentos | Auditoría experimental `AUDIT_DRAWING_DOCUMENTS_ENABLED`: `drawing.document.created/updated/deleted/archived/restored`. | Falta auditar la duplicación y validar concurrencia con páginas y colaboración. |
 | Dibujar: páginas y restauración | Auditoría experimental `AUDIT_DRAWING_PAGES_ENABLED`: `drawing.page.created/updated/deleted/reordered`. | Faltan la duplicación de páginas y la restauración de versiones. Validar las operaciones y concurrencia con colaboración. |
@@ -262,12 +264,19 @@ a estas transacciones: no activar hasta completar esa integración y validar
 concurrencia real.
 
 `AUDIT_TODO_ITEMS_ENABLED=true` habilita experimentalmente la auditoría de
-creación y movimiento de tareas. Las referencias a proyectos, secciones,
+creación, movimiento, archivo, desarchivo, importancia, prioridad y ordenación
+de tareas, además de alta, edición y eliminación de subtareas y comentarios.
+Las referencias a proyectos, secciones,
 etiquetas y responsables se comprueban en la misma transacción que los cambios,
 la actividad y el evento. La creación también guarda en ella la recurrencia
 inicial. Los eventos solo contienen identificadores y acción, no títulos ni
 contenido. La respuesta detallada se consulta después de la confirmación: si
 esa lectura falla, la operación ya puede haberse guardado y auditado.
+Al archivar una tarea se cancelan en la transacción sus recordatorios pendientes
+o en procesamiento; las actividades de subtareas también se guardan en ella.
+La edición de comentarios exige ser el autor; su eliminación exige ser el autor
+o el propietario de la tarea personal o proyecto. La actividad y el evento se
+confirman junto con cada cambio.
 Requiere `AUDIT_TODO_SECTIONS_ENABLED=true` y, por tanto,
 `AUDIT_TODO_PROJECTS_ENABLED=true`; el backend rechaza una configuración
 incompleta. La edición general, eliminación, estados, recurrencia automática y
@@ -275,6 +284,14 @@ restantes operaciones todavía no están auditadas. La duplicación pasa por el
 alta y produce `todo.item.created`, pero su lectura de origen es independiente.
 No activar hasta integrar las rutas restantes y validar Firebase, las condiciones
 de carrera y el aislamiento de entornos.
+
+`AUDIT_TODO_LABELS_ENABLED=true` habilita experimentalmente la auditoría de
+alta, edición y eliminación de etiquetas de la lista de tareas. La propiedad y
+la unicidad se comprueban en la transacción; la eliminación retira también las
+relaciones de tareas. Los eventos contienen identificadores y acción, no
+nombres ni colores. No activar hasta integrar las rutas restantes que modifican
+estas relaciones y validar Firebase, las condiciones de carrera y el
+aislamiento de entornos. Todas las instancias deben ejecutar código compatible.
 
 `AUDIT_DRAWING_DOCUMENTS_ENABLED=true` habilita experimentalmente la auditoría
 de alta, edición, archivo, restauración y eliminación de documentos de dibujo.
@@ -334,9 +351,9 @@ Realtime Database. El identificador de actor es el de la cuenta recuperada y
 representa el uso de un enlace válido, no una sesión autenticada. No se
 almacenan en la auditoría ni el token, ni su hash, ni la contraseña.
 
-El publicador se ejecuta cuando cualquiera de las diecisiete banderas está activa y
+El publicador se ejecuta cuando cualquiera de las dieciocho banderas está activa y
 procesa toda la outbox, con independencia del tipo de evento. Al desactivar
-las diecisiete banderas se detiene el publicador; las entradas pendientes permanecen en
+las dieciocho banderas se detiene el publicador; las entradas pendientes permanecen en
 Realtime Database y se reanudan al volver a habilitar al menos una bandera.
 El panel consulta `GET /api/monitoring/audit-status`, protegido por
 `monitoring:app` y auditado antes de leer la outbox. Muestra el número de

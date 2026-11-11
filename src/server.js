@@ -9,7 +9,7 @@ const {
     isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
     isRegistrationAuditEnabled, isWorkshopStorageAuditEnabled, isStorageBoxAuditEnabled, isRepairAuditEnabled,
     isCatalogAuditEnabled, isTaskBoardCatalogAuditEnabled, isTaskBoardTaskAuditEnabled,
-    isTodoProjectAuditEnabled, isTodoSectionAuditEnabled, isTodoItemAuditEnabled,
+    isTodoProjectAuditEnabled, isTodoSectionAuditEnabled, isTodoItemAuditEnabled, isTodoLabelAuditEnabled,
     isDrawingDocumentAuditEnabled, isDrawingPageAuditEnabled
 } = require("./audit/businessOutbox");
 
@@ -29,7 +29,7 @@ async function startServer() {
                 isSelfUserAuditEnabled() || isRecoveryAuditEnabled() || isRegistrationAuditEnabled() ||
                 isWorkshopStorageAuditEnabled() || isStorageBoxAuditEnabled() || isRepairAuditEnabled() ||
                 isCatalogAuditEnabled() || isTaskBoardCatalogAuditEnabled() || taskBoardTaskAuditEnabled ||
-                isTodoProjectAuditEnabled() || todoSectionAuditEnabled || todoItemAuditEnabled ||
+                isTodoProjectAuditEnabled() || todoSectionAuditEnabled || todoItemAuditEnabled || isTodoLabelAuditEnabled() ||
                 isDrawingDocumentAuditEnabled() || isDrawingPageAuditEnabled()) {
                 auditWorker.start();
             }
