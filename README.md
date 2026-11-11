@@ -400,8 +400,9 @@ opciones activas, las imágenes antiguas no se eliminan automáticamente, y las
 cargas fallidas pueden dejar objetos huérfanos: todavía falta una conciliación
 segura con Storage.
 
-Las páginas de almacenamiento permiten consultar los últimos 25 cambios
-publicados, solo a usuarios con `monitoring:app`. El acceso al historial se
+Las páginas de almacenamiento y el panel de monitorización permiten consultar
+por separado los últimos 25 cambios publicados de cajas y taller, solo a usuarios
+con `monitoring:app`. No constituyen un historial general de otras áreas. El acceso al historial se
 audita en Firestore antes de leerlo. Los eventos pendientes en la outbox,
 los anteriores a la introducción de `auditScope` y los cambios realizados con
 auditoría desactivada no aparecen. El historial corresponde a toda la base
