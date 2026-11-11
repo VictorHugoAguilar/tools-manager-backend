@@ -2316,6 +2316,38 @@ async function todoListListReminders(todoListItemId, todoListUserId) {
 }
 
 async function todoListCreateReminder(todoListItemId, payload, todoListUserId) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListItemId);
+        todoListValidateAuditId(todoListUserId);
+        const id = randomUUID();
+        const now = new Date().toISOString();
+        const reminder = await transactTodoItem({
+            targetId: id, actorId: todoListUserId, action: "todo.reminder.created",
+            change: (data) => {
+                const item = todoListAuditedItem(data, todoListItemId, todoListUserId);
+                if (item.status === "completed" || item.isArchived) {
+                    throw todoListError("No se pueden programar recordatorios para tareas completadas o archivadas.", 409);
+                }
+                const allReminders = data.TodoListReminders || {};
+                const reminders = Object.hasOwn(allReminders, todoListItemId) ? allReminders[todoListItemId] : {};
+                if (Object.hasOwn(reminders || {}, id)) throw todoListError("El recordatorio ya existe.", 409);
+                const type = payload?.type || "at_due";
+                const value = {
+                    todoListItemId, userId: todoListUserId,
+                    reminderDateTime: todoListReminderDateTime(
+                        item.dueDate, item.dueTime, item.timeZone, type, payload?.reminderDateTime
+                    ),
+                    type, status: "scheduled", createdAt: now
+                };
+                data.TodoListReminders = { ...allReminders, [todoListItemId]: { ...reminders, [id]: value } };
+                return { value: data, result: { id, ...value } };
+            }
+        });
+        if (todoListReminderWorkerStarted && new Date(reminder.reminderDateTime) <= new Date()) {
+            void todoListRunReminderProcessor();
+        }
+        return reminder;
+    }
     const { item } = await todoListGetItemAccess(todoListItemId, todoListUserId, true);
     if (item.status === "completed" || item.isArchived) {
         throw todoListError("No se pueden programar recordatorios para tareas completadas o archivadas.", 409);
@@ -2347,6 +2379,24 @@ async function todoListCreateReminder(todoListItemId, payload, todoListUserId) {
 }
 
 async function todoListUpdateReminder(todoListReminderId, payload, todoListUserId) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListReminderId);
+        todoListValidateAuditId(todoListUserId);
+        const updated = await transactTodoItem({
+            targetId: todoListReminderId, actorId: todoListUserId, action: "todo.reminder.updated",
+            change: (data) => {
+                const { item, reminder } = todoListAuditedReminder(data, todoListReminderId, todoListUserId, "modificar");
+                const changes = todoListReminderChanges(item, reminder, payload);
+                Object.assign(reminder, changes);
+                return { value: data, result: { id: todoListReminderId, ...reminder } };
+            }
+        });
+        if (updated.status === "scheduled" && todoListReminderWorkerStarted &&
+            new Date(updated.reminderDateTime) <= new Date()) {
+            void todoListRunReminderProcessor();
+        }
+        return updated;
+    }
     const todoListRemindersSnapshot = await todoListRef("TodoListReminders").get();
     let todoListEntry;
     for (const [itemId, reminders] of Object.entries(todoListRemindersSnapshot.val() || {})) {
@@ -2361,18 +2411,28 @@ async function todoListUpdateReminder(todoListReminderId, payload, todoListUserI
         throw todoListError("No tienes permiso para modificar este recordatorio.", 403);
     }
     const todoListItem = (await todoListRef(`TodoListItems/${todoListEntry.itemId}`).get()).val();
-    if (todoListEntry.reminder.status === "triggered" || todoListEntry.reminder.status === "cancelled") {
+    const todoListChanges = todoListReminderChanges(todoListItem, todoListEntry.reminder, payload);
+    await todoListRef(`TodoListReminders/${todoListEntry.itemId}/${todoListReminderId}`).update(todoListChanges);
+    if (todoListChanges.status === "scheduled" && todoListReminderWorkerStarted &&
+        new Date(todoListChanges.reminderDateTime ?? todoListEntry.reminder.reminderDateTime) <= new Date()) {
+        void todoListRunReminderProcessor();
+    }
+    return { id: todoListReminderId, ...todoListEntry.reminder, ...todoListChanges };
+}
+
+function todoListReminderChanges(item, reminder, payload) {
+    if (reminder.status === "triggered" || reminder.status === "cancelled") {
         throw todoListError("Este recordatorio ya no se puede modificar.", 409);
     }
-    if (todoListItem.status === "completed" || todoListItem.isArchived) {
+    if (item.status === "completed" || item.isArchived) {
         throw todoListError("No se pueden modificar recordatorios de tareas completadas o archivadas.", 409);
     }
     const todoListChanges = {};
     if (Object.hasOwn(payload || {}, "reminderDateTime")) {
         todoListChanges.reminderDateTime = todoListReminderDateTime(
-            todoListItem.dueDate,
-            todoListItem.dueTime,
-            todoListItem.timeZone,
+            item.dueDate,
+            item.dueTime,
+            item.timeZone,
             "custom",
             payload.reminderDateTime
         );
@@ -2384,22 +2444,30 @@ async function todoListUpdateReminder(todoListReminderId, payload, todoListUserI
         if (!["scheduled", "cancelled"].includes(payload.status)) throw todoListError("El estado del recordatorio no es válido.");
         todoListChanges.status = payload.status;
         if (payload.status === "scheduled") {
-            if (todoListItem.status === "completed" || todoListItem.isArchived) {
+            if (item.status === "completed" || item.isArchived) {
                 throw todoListError("No se pueden programar recordatorios para tareas completadas o archivadas.", 409);
             }
             todoListChanges.processingLeaseUntil = null;
         }
     }
     if (!Object.keys(todoListChanges).length) throw todoListError("No hay cambios para guardar.");
-    await todoListRef(`TodoListReminders/${todoListEntry.itemId}/${todoListReminderId}`).update(todoListChanges);
-    if (todoListChanges.status === "scheduled" && todoListReminderWorkerStarted &&
-        new Date(todoListChanges.reminderDateTime ?? todoListEntry.reminder.reminderDateTime) <= new Date()) {
-        void todoListRunReminderProcessor();
-    }
-    return { id: todoListReminderId, ...todoListEntry.reminder, ...todoListChanges };
+    return todoListChanges;
 }
 
 async function todoListDeleteReminder(todoListReminderId, todoListUserId) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListReminderId);
+        todoListValidateAuditId(todoListUserId);
+        await transactTodoItem({
+            targetId: todoListReminderId, actorId: todoListUserId, action: "todo.reminder.deleted",
+            change: (data) => {
+                const { itemId } = todoListAuditedReminder(data, todoListReminderId, todoListUserId, "eliminar");
+                delete data.TodoListReminders[itemId][todoListReminderId];
+                return { value: data, result: true };
+            }
+        });
+        return;
+    }
     const todoListRemindersSnapshot = await todoListRef("TodoListReminders").get();
     for (const [todoListItemId, reminders] of Object.entries(todoListRemindersSnapshot.val() || {})) {
         if (reminders[todoListReminderId]) {
@@ -2409,6 +2477,21 @@ async function todoListDeleteReminder(todoListReminderId, todoListUserId) {
             }
             await todoListRef(`TodoListReminders/${todoListItemId}/${todoListReminderId}`).remove();
             return;
+        }
+    }
+    throw todoListError("El recordatorio no existe.", 404);
+}
+
+function todoListAuditedReminder(data, reminderId, userId, operation) {
+    for (const [itemId, reminders] of Object.entries(data.TodoListReminders || {})) {
+        if (reminders && Object.hasOwn(reminders, reminderId) && reminders[reminderId]) {
+            todoListValidateAuditId(itemId);
+            const item = todoListAuditedItem(data, itemId, userId);
+            const reminder = reminders[reminderId];
+            if (reminder.userId !== userId) {
+                throw todoListError(`No tienes permiso para ${operation} este recordatorio.`, 403);
+            }
+            return { itemId, item, reminder };
         }
     }
     throw todoListError("El recordatorio no existe.", 404);

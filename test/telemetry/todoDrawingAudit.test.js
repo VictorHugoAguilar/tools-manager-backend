@@ -376,6 +376,84 @@ test("comment changes recheck author, access and user status on transaction retr
     assert.equal(h.root.todoList.TodoListItemComments.item.comment.content, "old");
 });
 
+test("reminder changes are atomic, enforce ownership and publish sanitized audit events", async () => {
+    const h = harness({ todoList: {
+        TodoLists: { project: { ownerUserId: "owner" } },
+        TodoListMembers: { project: { editor: { role: "editor" }, viewer: { role: "viewer" } } },
+        TodoListItems: { item: {
+            todoListId: "project", title: "private title", status: "pending",
+            dueDate: "2099-06-01", dueTime: "10:00", timeZone: "UTC"
+        } }
+    } });
+    const reminder = await h.todo.todoListCreateReminder("item", { type: "before_1h" }, "editor");
+    assert.equal(reminder.reminderDateTime, "2099-06-01T09:00:00.000Z");
+    await assert.rejects(h.todo.todoListUpdateReminder(reminder.id, { status: "cancelled" }, "owner"), { statusCode: 403 });
+    await assert.rejects(h.todo.todoListDeleteReminder(reminder.id, "viewer"), { statusCode: 403 });
+    const updated = await h.todo.todoListUpdateReminder(reminder.id,
+        { reminderDateTime: "2099-05-01T10:00:00Z" }, "editor");
+    assert.equal(updated.type, "custom");
+    assert.equal(updated.reminderDateTime, "2099-05-01T10:00:00.000Z");
+    assert.equal(updated.status, "scheduled");
+    assert.equal(updated.processingLeaseUntil, null);
+    await h.todo.todoListDeleteReminder(reminder.id, "editor");
+    assert.equal(h.root.todoList.TodoListReminders.item[reminder.id], undefined);
+    const events = Object.values(h.root.auditOutbox);
+    assert.deepEqual(events.map((event) => event.action), [
+        "todo.reminder.created", "todo.reminder.updated", "todo.reminder.deleted"
+    ]);
+    assert.ok(events.every((event) => event.targetId === reminder.id));
+    assert.doesNotMatch(JSON.stringify(events), /private title|2099|before_1h/);
+    const published = [];
+    const worker = new AuditOutboxWorker({ getRealtimeDatabase: () => h.database,
+        getFirestoreDatabase: () => ({ collection: () => ({ doc: () => ({ create: async (event) => published.push(event) }) }) }) });
+    await worker.flush();
+    assert.equal(published.length, 3);
+});
+
+test("reminder changes recheck task, access and delivery status on retries and failure", async () => {
+    const h = harness({ todoList: {
+        TodoLists: { project: { ownerUserId: "owner" } },
+        TodoListMembers: { project: { editor: { role: "editor" } } },
+        TodoListItems: { item: {
+            todoListId: "project", status: "pending", dueDate: "2099-06-01", dueTime: "10:00", timeZone: "UTC"
+        } },
+        TodoListReminders: { item: { reminder: {
+            todoListItemId: "item", userId: "editor", status: "scheduled", type: "at_due",
+            reminderDateTime: "2099-06-01T10:00:00.000Z"
+        } } }
+    } });
+    h.retry((root) => { root.todoList.TodoListItems.item.status = "completed"; });
+    await assert.rejects(h.todo.todoListCreateReminder("item", {}, "editor"), { statusCode: 409 });
+    assert.equal(h.root.auditOutbox, undefined);
+    h.root.todoList.TodoListItems.item.status = "pending";
+    h.retry((root) => { root.todoList.TodoListReminders.item.reminder.status = "triggered"; });
+    await assert.rejects(h.todo.todoListUpdateReminder("reminder", { status: "cancelled" }, "editor"), { statusCode: 409 });
+    h.retry((root) => { root.todoList.TodoListMembers.project.editor.role = "viewer"; });
+    await assert.rejects(h.todo.todoListDeleteReminder("reminder", "editor"), { statusCode: 403 });
+    h.root.todoList.TodoListMembers.project.editor.role = "editor";
+    h.root.todoList.TodoListReminders.item.reminder.userId = "owner";
+    await assert.rejects(h.todo.todoListDeleteReminder("reminder", "editor"), { statusCode: 403 });
+    await assert.rejects(h.todo.todoListDeleteReminder("missing", "editor"), { statusCode: 404 });
+    h.fail();
+    await assert.rejects(h.todo.todoListDeleteReminder("reminder", "owner"), /database unavailable/);
+    assert.ok(h.root.todoList.TodoListReminders.item.reminder);
+    assert.equal(h.root.auditOutbox, undefined);
+});
+
+test("reminder creation rechecks due date and rejects invalid or terminal changes", async () => {
+    const h = harness({ todoList: {
+        TodoListItems: { item: { createdByUserId: "owner", status: "pending", dueDate: "2099-06-01", timeZone: "UTC" } }
+    } });
+    h.retry((root) => { root.todoList.TodoListItems.item.dueDate = "2099-06-02"; });
+    const reminder = await h.todo.todoListCreateReminder("item", { type: "at_due" }, "owner");
+    assert.equal(reminder.reminderDateTime, "2099-06-02T09:00:00.000Z");
+    await assert.rejects(h.todo.todoListUpdateReminder(reminder.id, {}, "owner"), { statusCode: 400 });
+    await assert.rejects(h.todo.todoListUpdateReminder(reminder.id, { status: "invalid" }, "owner"), { statusCode: 400 });
+    await h.todo.todoListUpdateReminder(reminder.id, { status: "cancelled" }, "owner");
+    await assert.rejects(h.todo.todoListUpdateReminder(reminder.id, { status: "scheduled" }, "owner"), { statusCode: 409 });
+    assert.equal(Object.keys(h.root.auditOutbox).length, 2);
+});
+
 test("item transactions revalidate sections, permissions and assignees on retry", async () => {
     const h = harness({
         authUsers: { owner: {}, editor: {} },

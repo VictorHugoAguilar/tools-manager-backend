@@ -286,7 +286,8 @@ async function transactTodoItem({ targetId, actorId, action, change, database = 
     if (!["todo.item.created", "todo.item.moved", "todo.item.archived", "todo.item.unarchived",
         "todo.item.importance.updated", "todo.item.priority.updated", "todo.item.reordered",
         "todo.child.created", "todo.child.updated", "todo.child.deleted",
-        "todo.comment.created", "todo.comment.updated", "todo.comment.deleted"].includes(action)) {
+        "todo.comment.created", "todo.comment.updated", "todo.comment.deleted",
+        "todo.reminder.created", "todo.reminder.updated", "todo.reminder.deleted"].includes(action)) {
         throw new Error("Acción de auditoría de tarea no válida.");
     }
     const result = await transactEntity({

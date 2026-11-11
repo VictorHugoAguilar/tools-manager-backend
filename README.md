@@ -119,7 +119,8 @@ auditan hitos y cambios de acceso, no cada actualización WebSocket.
 | Lista de tareas: tareas y subtareas | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.item.created/moved/archived/unarchived/reordered`, `todo.item.importance.updated`, `todo.item.priority.updated` y `todo.child.created/updated/deleted`. La duplicación utiliza el alta y genera `todo.item.created`. | Faltan `todo.item.updated/deleted/completed/reopened/duplicated`. La duplicación no valida atómicamente la tarea de origen. |
 | Lista de tareas: etiquetas | Auditoría experimental `AUDIT_TODO_LABELS_ENABLED`: `todo.label.created/updated/deleted`. | Validar en Firebase y completar las rutas que modifican relaciones de etiquetas antes de habilitar. |
 | Lista de tareas: comentarios | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.comment.created/updated/deleted`. | Validar permisos y concurrencia en Firebase. No guardar contenido ni nombres en los eventos. |
-| Lista de tareas: adjuntos y recordatorios | Sin auditoría durable específica. | Auditoría `todo.attachment.created/deleted` y `todo.reminder.created/updated/deleted`. No guardar contenido, texto, nombres ni URL. |
+| Lista de tareas: recordatorios manuales | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.reminder.created/updated/deleted`. | Validar en Firebase y coordinar con la edición de tareas y el procesador automático antes de habilitar. |
+| Lista de tareas: adjuntos | Sin auditoría durable específica. | Auditoría `todo.attachment.created/deleted`. No guardar contenido, texto, nombres ni URL. |
 | Lista de tareas: recurrencia, envío de recordatorios y notificaciones | Sin auditoría durable específica; existen procesos automáticos. | Diseñar eventos idempotentes `todo.recurrence.created` y `todo.reminder.delivered` para cambios de negocio confirmados por el sistema; separar fallos de entrega como telemetría `todo.reminder.delivery.failed`. Lectura de notificaciones y marca de leída: agregados, sin auditoría durable. El actor automático debe ser una identidad de sistema explícita, no un usuario inventado. |
 | Dibujar: documentos | Auditoría experimental `AUDIT_DRAWING_DOCUMENTS_ENABLED`: `drawing.document.created/updated/deleted/archived/restored`. | Falta auditar la duplicación y validar concurrencia con páginas y colaboración. |
 | Dibujar: páginas y restauración | Auditoría experimental `AUDIT_DRAWING_PAGES_ENABLED`: `drawing.page.created/updated/deleted/reordered`. | Faltan la duplicación de páginas y la restauración de versiones. Validar las operaciones y concurrencia con colaboración. |
@@ -265,7 +266,8 @@ concurrencia real.
 
 `AUDIT_TODO_ITEMS_ENABLED=true` habilita experimentalmente la auditoría de
 creación, movimiento, archivo, desarchivo, importancia, prioridad y ordenación
-de tareas, además de alta, edición y eliminación de subtareas y comentarios.
+de tareas, además de alta, edición y eliminación de subtareas, comentarios y
+recordatorios manuales.
 Las referencias a proyectos, secciones,
 etiquetas y responsables se comprueban en la misma transacción que los cambios,
 la actividad y el evento. La creación también guarda en ella la recurrencia
@@ -277,6 +279,11 @@ o en procesamiento; las actividades de subtareas también se guardan en ella.
 La edición de comentarios exige ser el autor; su eliminación exige ser el autor
 o el propietario de la tarea personal o proyecto. La actividad y el evento se
 confirman junto con cada cambio.
+En los recordatorios manuales se comprueban en la transacción el acceso, la
+propiedad, el estado de la tarea y del recordatorio; los eventos no contienen
+fechas programadas ni otros datos de contenido. El procesador automático aún
+realiza sus propias escrituras y su entrega no está auditada: deben integrarse
+y comprobarse las posibles carreras con modificaciones manuales.
 Requiere `AUDIT_TODO_SECTIONS_ENABLED=true` y, por tanto,
 `AUDIT_TODO_PROJECTS_ENABLED=true`; el backend rechaza una configuración
 incompleta. La edición general, eliminación, estados, recurrencia automática y
