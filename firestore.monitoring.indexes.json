@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "monitoringActiveUsers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "environment", "order": "ASCENDING" },
+        { "fieldPath": "lastInteractionAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "auditEvents",
       "queryScope": "COLLECTION",
       "fields": [

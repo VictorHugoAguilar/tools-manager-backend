@@ -16,6 +16,7 @@ test.after(() => { sessions.resolveSession = originalResolveSession; });
 test("monitoring requires permission and a durable audit before reading bounded events", async () => {
     const calls = [];
     let auditFails = false;
+    let activeCountFails = false;
     const query = {
         where(field, op, timestamp) {
             calls.push([field, op, typeof timestamp === "string" ? timestamp : timestamp.toMillis()]);
@@ -58,6 +59,13 @@ test("monitoring requires permission and a durable audit before reading bounded 
                     }) }] };
                 }
             };
+            if (name === "monitoringActiveUsers") return {
+                where() { return this; },
+                count() { return { get: async () => {
+                    if (activeCountFails) throw new Error("count unavailable");
+                    return { data: () => ({ count: 2 }) };
+                } }; }
+            };
             assert.equal(name, "auditEvents");
             return { doc: (id) => ({
                 async create(record) {
@@ -85,6 +93,8 @@ test("monitoring requires permission and a durable audit before reading bounded 
         assert.equal(response.headers.get("cache-control"), "no-store");
         const payload = await response.json();
         assert.equal(payload.period, "24h");
+        assert.equal(payload.activeUsers.count, 2);
+        assert.equal(payload.activeUsers.windowMinutes, 5);
         assert.equal(payload.httpMetrics.count, 0);
         assert.deepEqual(payload.webSocketMetrics.points, []);
         assert.equal(payload.heartbeats.services.websocket.lastHeartbeatAt, null);
@@ -105,6 +115,14 @@ test("monitoring requires permission and a durable audit before reading bounded 
         const services = await servicesResponse.json();
         assert.equal(services.resources.backend[0].instanceId, "backend-instance");
         assert.equal(services.resources.backend[0].disk.totalBytes, 100);
+        activeCountFails = true;
+        const previousError = console.error;
+        console.error = () => {};
+        try {
+            const failedCount = await fetch(url, options("allowed"));
+            assert.equal(failedCount.status, 200);
+            assert.equal((await failedCount.json()).activeUsers, null);
+        } finally { console.error = previousError; }
         calls.length = 0;
         auditFails = true;
         assert.equal((await fetch(url, options("allowed"))).status, 500);

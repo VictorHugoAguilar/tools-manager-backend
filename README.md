@@ -441,6 +441,34 @@ La sección de actividad identifica las consultas de almacenamiento instrumentad
 que estén entre esos 25 eventos, con su respuesta HTTP. No representa todos los
 cambios ni sustituye la auditoría durable: la telemetría puede perderse.
 
+La tarjeta «Usuarios activos» cuenta usuarios únicos que han generado una señal
+de interacción en la ventana configurada por
+`MONITORING_ACTIVE_USERS_WINDOW_MINUTES` (5 minutos por defecto; entero de 1 a
+1440). La ventana es independiente del periodo seleccionado en el resumen.
+El navegador envía señales para pulsaciones, teclas y rueda de desplazamiento
+de eventos fiables en una pestaña visible con sesión conocida, no por simples
+peticiones automáticas ni conexiones WebSocket. La señal se limita a una cada
+15 segundos por pestaña, con un último envío si hubo interacción durante ese
+intervalo. Una sesión cerrada o revocada puede seguir contándose hasta que
+expire su última señal. Es una estimación de actividad registrada, no una prueba
+de presencia humana: clientes antiguos, fallos de red, sesiones inválidas,
+límites de peticiones o falta de permiso `app:access` pueden omitir actividad.
+
+La señal exige telemetría habilitada en frontend y backend, sesión y CSRF, y
+escribe un documento por usuario y entorno en `monitoringActiveUsers`. Su ID es
+un hash del entorno y el identificador interno; no se guardan nombres ni detalles
+de la interacción. El backend usa la marca temporal de Firestore para contar
+documentos dentro de la ventana y devuelve solo el agregado a quienes tengan
+`monitoring:app`. La lectura y las escrituras tienen coste; no representan una
+auditoría. Configura el TTL de Firestore sobre `expiresAt` (retención de dos días),
+restringe el acceso directo a la colección y despliega el índice de
+`monitoringActiveUsers` de `firestore.monitoring.indexes.json`. El TTL es
+eventual, por lo que la consulta filtra siempre por fecha. Si falla el recuento
+se registra el error y la tarjeta muestra «Sin datos», sin bloquear el resto del
+resumen. Un cero significa que no se registraron señales, no que nadie usara la
+aplicación. Habilitar o cambiar la ventana requiere configurar cada instancia del
+backend de manera consistente.
+
 La sección de logs permite buscar por intervalo, servicio, nivel, nombre exacto
 de evento y `traceId`. La API `GET /api/monitoring/events` exige `from` y `to`
 UTC ISO-8601, limita el intervalo a siete días y devuelve hasta 25 resultados y

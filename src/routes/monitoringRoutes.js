@@ -8,6 +8,7 @@ const { loadHttpMetrics, loadWebSocketMetrics } = require("../telemetry/metricsQ
 const { loadHeartbeatSummary } = require("../telemetry/heartbeat");
 const { findEvents, parseEventFilters, serializeEvent } = require("../telemetry/eventsQuery");
 const { auditWorker } = require("../audit/outboxWorker");
+const { activeUserWindowMinutes, countActiveUsers } = require("../telemetry/activeUsers");
 
 function parseMetricsFilters(query) {
     const invalid = () => Object.assign(new Error("Los filtros de métricas no son válidos."), { statusCode: 400 });
@@ -82,6 +83,12 @@ function createMonitoringRouter(options = {}) {
                 now: now.getTime(),
                 environment: manager.environment
             });
+            let activeUsers = null;
+            try {
+                activeUsers = await countActiveUsers(db, manager.environment, now.getTime(), activeUserWindowMinutes());
+            } catch (error) {
+                console.error("No se pudo consultar el recuento de usuarios activos.", error);
+            }
             res.set("Cache-Control", "no-store");
             return res.json({
                 period,
@@ -90,6 +97,7 @@ function createMonitoringRouter(options = {}) {
                 httpMetrics,
                 webSocketMetrics,
                 heartbeats,
+                activeUsers,
                 collector: manager.getHealth()
             });
         } catch (error) {

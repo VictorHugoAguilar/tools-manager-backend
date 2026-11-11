@@ -19,6 +19,9 @@ test("monitoring index configuration covers every supported structured query", (
     assert.ok(hasIndex("monitoringInstances", [
         ["environment", "ASCENDING"], ["heartbeatAt", "DESCENDING"]
     ]));
+    assert.ok(hasIndex("monitoringActiveUsers", [
+        ["environment", "ASCENDING"], ["lastInteractionAt", "ASCENDING"]
+    ]));
     assert.ok(hasIndex("monitoringMetricBuckets", [
         ["environment", "ASCENDING"], ["metricName", "ASCENDING"],
         ["service", "ASCENDING"], ["intervalStart", "ASCENDING"]
