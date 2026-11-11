@@ -7,6 +7,7 @@ const { telemetry } = require("../telemetry/telemetry");
 const { loadHttpMetrics, loadWebSocketMetrics } = require("../telemetry/metricsQuery");
 const { loadHeartbeatSummary } = require("../telemetry/heartbeat");
 const { findEvents, parseEventFilters, serializeEvent } = require("../telemetry/eventsQuery");
+const { auditWorker } = require("../audit/outboxWorker");
 
 function parseMetricsFilters(query) {
     const invalid = () => Object.assign(new Error("Los filtros de métricas no son válidos."), { statusCode: 400 });
@@ -37,6 +38,7 @@ function createMonitoringRouter(options = {}) {
     const router = express.Router();
     const manager = options.manager || telemetry;
     const getDatabase = options.getDatabase || (() => getFirestore(getAdminApp()));
+    const auditPublisher = options.auditWorker || auditWorker;
 
     router.use(requireAuthenticated, requirePermission("monitoring:app"));
     router.get("/overview", async (req, res, next) => {
@@ -154,6 +156,28 @@ function createMonitoringRouter(options = {}) {
                 generatedAt: now.toISOString(),
                 freshnessSeconds: heartbeats.freshnessSeconds,
                 services: { ...heartbeats.services, frontend: null, storage: null }
+            });
+        } catch (error) {
+            return next(error);
+        }
+    });
+
+    router.get("/audit-status", async (req, res, next) => {
+        if (Object.keys(req.query).length) {
+            return res.status(400).json({ message: "Los filtros de auditoría no son válidos." });
+        }
+        if (!manager.enabled) return res.status(503).json({ message: "La telemetría no está habilitada." });
+        try {
+            await getDatabase().collection("auditEvents").doc(randomUUID()).create({
+                schemaVersion: 1, action: "monitoring.audit-status.accessed",
+                actorId: req.authUser.id, occurredAt: Timestamp.now()
+            });
+            const pending = await auditPublisher.getPendingSummary();
+            res.set("Cache-Control", "no-store");
+            return res.json({
+                checkedAt: new Date().toISOString(),
+                pending,
+                publisher: auditPublisher.getHealth()
             });
         } catch (error) {
             return next(error);

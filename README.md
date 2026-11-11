@@ -148,6 +148,17 @@ El publicador se ejecuta cuando cualquiera de las seis banderas está activa y
 procesa toda la outbox, con independencia del tipo de evento. Al desactivar
 las seis banderas se detiene el publicador; las entradas pendientes permanecen en
 Realtime Database y se reanudan al volver a habilitar al menos una bandera.
+El panel consulta `GET /api/monitoring/audit-status`, protegido por
+`monitoring:app` y auditado antes de leer la outbox. Muestra el número de
+entradas pendientes hasta 100; si hay más, muestra «Al menos 100». La lectura
+abarca la outbox compartida de la base, no un entorno concreto, mientras que el
+estado y los fallos del publicador corresponden exclusivamente a la instancia
+del backend que respondió. Una comprobación correcta puede encontrar la cola
+vacía; no demuestra que todas las acciones estén auditadas ni que funcionen
+otras instancias. Los contadores y fechas locales se reinician al reiniciar el
+proceso. Una consulta fallida se muestra como error, no como cola vacía.
+Una entrada aún pendiente en Realtime Database podría haberse publicado ya en
+Firestore si falló la confirmación de su eliminación de la outbox.
 
 Esta opción mantiene las rutas actuales, pero cada transacción afecta a la raíz
 completa y puede entrar en conflicto con escrituras de otras funcionalidades.

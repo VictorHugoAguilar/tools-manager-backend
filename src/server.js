@@ -4,7 +4,7 @@ const { connectToDatabase } = require("./config/database");
 const { initializeAuthData } = require("./services/userService");
 const { createApp } = require("./app");
 const { telemetry } = require("./telemetry/telemetry");
-const { AuditOutboxWorker } = require("./audit/outboxWorker");
+const { auditWorker } = require("./audit/outboxWorker");
 const {
     isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
     isRegistrationAuditEnabled
@@ -12,7 +12,6 @@ const {
 
 const PORT = process.env.PORT || 3000;
 const app = createApp();
-const auditWorker = new AuditOutboxWorker();
 
 async function startServer() {
     try {

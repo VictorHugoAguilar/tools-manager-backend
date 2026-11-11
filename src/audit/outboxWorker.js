@@ -2,6 +2,7 @@ const { getFirestore } = require("firebase-admin/firestore");
 const { getAdminApp, getAdminDatabase } = require("../config/firebaseAdmin");
 
 const BATCH_SIZE = 50;
+const STATUS_LIMIT = 100;
 const INTERVAL_MS = 5000;
 const EVENT_FIELDS = ["schemaVersion", "eventId", "action", "actorId", "targetId", "occurredAt"];
 const ROLE_FIELDS = ["permissionsBefore", "permissionsAfter"];
@@ -37,6 +38,10 @@ class AuditOutboxWorker {
         this.getFirestoreDatabase = getFirestoreDatabase;
         this.inFlight = null;
         this.timer = null;
+        this.consecutiveFailures = 0;
+        this.lastAttemptAt = null;
+        this.lastSuccessfulCheckAt = null;
+        this.lastFailureAt = null;
     }
 
     start() {
@@ -55,8 +60,34 @@ class AuditOutboxWorker {
 
     flush() {
         if (this.inFlight) return this.inFlight;
-        this.inFlight = this.publishBatch().finally(() => { this.inFlight = null; });
+        this.lastAttemptAt = new Date().toISOString();
+        this.inFlight = this.publishBatch().then(() => {
+            this.consecutiveFailures = 0;
+            this.lastSuccessfulCheckAt = new Date().toISOString();
+        }, (error) => {
+            this.consecutiveFailures += 1;
+            this.lastFailureAt = new Date().toISOString();
+            throw error;
+        }).finally(() => { this.inFlight = null; });
         return this.inFlight;
+    }
+
+    getHealth() {
+        return {
+            running: this.timer !== null,
+            inFlight: this.inFlight !== null,
+            consecutiveFailures: this.consecutiveFailures,
+            lastAttemptAt: this.lastAttemptAt,
+            lastSuccessfulCheckAt: this.lastSuccessfulCheckAt,
+            lastFailureAt: this.lastFailureAt
+        };
+    }
+
+    async getPendingSummary() {
+        const snapshot = await this.getRealtimeDatabase().ref("auditOutbox")
+            .orderByKey().limitToFirst(STATUS_LIMIT + 1).get();
+        const count = snapshot.numChildren();
+        return { count: Math.min(count, STATUS_LIMIT), truncated: count > STATUS_LIMIT };
     }
 
     async publishBatch() {
@@ -94,4 +125,5 @@ class AuditOutboxWorker {
     }
 }
 
-module.exports = { AuditOutboxWorker, BATCH_SIZE };
+const auditWorker = new AuditOutboxWorker();
+module.exports = { AuditOutboxWorker, auditWorker, BATCH_SIZE, STATUS_LIMIT };
