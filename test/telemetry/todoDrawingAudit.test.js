@@ -2,7 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { loadModuleWithMocks } = require("../helpers/loadModuleWithMocks");
 const {
-    transactTodoProject, transactTodoSection, transactDrawingDocument, transactDrawingPage, isTodoSectionAuditEnabled
+    transactTodoProject, transactTodoSection, transactTodoItem, transactDrawingDocument, transactDrawingPage,
+    isTodoSectionAuditEnabled, isTodoItemAuditEnabled
 } = require("../../src/audit/businessOutbox");
 const { AuditOutboxWorker } = require("../../src/audit/outboxWorker");
 
@@ -24,7 +25,19 @@ function harness(initial = {}) {
                 root = result;
                 return { committed: true };
             } };
-            assert.equal(path, "auditOutbox");
+            if (path !== "auditOutbox") {
+                function ref(currentPath) {
+                    return {
+                        child(child) { return ref(`${currentPath}/${child}`); },
+                        async get() {
+                            const value = currentPath.split("/").filter(Boolean).reduce((parent, key) =>
+                                parent && Object.hasOwn(parent, key) ? parent[key] : undefined, root);
+                            return { exists: () => value != null, val: () => value == null ? null : structuredClone(value) };
+                        }
+                    };
+                }
+                return ref(path);
+            }
             return {
                 orderByKey() { return this; },
                 limitToFirst() { return this; },
@@ -44,10 +57,12 @@ function harness(initial = {}) {
     const audit = {
         isTodoProjectAuditEnabled: () => true,
         isTodoSectionAuditEnabled: () => true,
+        isTodoItemAuditEnabled: () => true,
         isDrawingDocumentAuditEnabled: () => true,
         isDrawingPageAuditEnabled: () => true,
         transactTodoProject: (options) => transactTodoProject({ ...options, database }),
         transactTodoSection: (options) => transactTodoSection({ ...options, database }),
+        transactTodoItem: (options) => transactTodoItem({ ...options, database }),
         transactDrawingDocument: (options) => transactDrawingDocument({ ...options, database }),
         transactDrawingPage: (options) => transactDrawingPage({ ...options, database })
     };
@@ -81,6 +96,126 @@ test("section audit requires project audit and is disabled by default", () => {
         if (project === undefined) delete process.env.AUDIT_TODO_PROJECTS_ENABLED;
         else process.env.AUDIT_TODO_PROJECTS_ENABLED = project;
     }
+});
+
+test("item audit requires section and project audit", () => {
+    const keys = ["AUDIT_TODO_ITEMS_ENABLED", "AUDIT_TODO_SECTIONS_ENABLED", "AUDIT_TODO_PROJECTS_ENABLED"];
+    const previous = keys.map((key) => process.env[key]);
+    try {
+        keys.forEach((key) => { delete process.env[key]; });
+        assert.equal(isTodoItemAuditEnabled(), false);
+        process.env.AUDIT_TODO_ITEMS_ENABLED = "true";
+        assert.throws(() => isTodoItemAuditEnabled(), /requiere AUDIT_TODO_SECTIONS_ENABLED/);
+        process.env.AUDIT_TODO_SECTIONS_ENABLED = "true";
+        assert.throws(() => isTodoItemAuditEnabled(), /requiere AUDIT_TODO_PROJECTS_ENABLED/);
+        process.env.AUDIT_TODO_PROJECTS_ENABLED = "true";
+        assert.equal(isTodoItemAuditEnabled(), true);
+    } finally {
+        keys.forEach((key, index) => {
+            if (previous[index] === undefined) delete process.env[key];
+            else process.env[key] = previous[index];
+        });
+    }
+});
+
+test("item creation and moves atomically preserve relations, recurrence, activity and positions", async () => {
+    const h = harness({
+        authUsers: { owner: { firstName: "Ada" }, editor: { firstName: "Editor" } },
+        todoList: {
+            TodoLists: { project: { ownerUserId: "owner", isArchived: false } },
+            TodoListMembers: { project: { editor: { role: "editor" } } },
+            TodoListSections: { first: { todoListId: "project" }, second: { todoListId: "project" } },
+            TodoListLabels: { label: { ownerUserId: "owner", name: "secret" } }
+        }
+    });
+    const first = await h.todo.todoListCreateItem({
+        title: "private task", todoListId: "project", sectionId: "first", labelIds: ["label"],
+        assigneeUserIds: ["editor"], dueDate: "2026-09-01", recurrence: { frequency: "daily" }
+    }, "editor");
+    const second = await h.todo.todoListCreateItem({ title: "other", todoListId: "project", sectionId: "first" }, "owner");
+    const target = await h.todo.todoListCreateItem({ title: "target", todoListId: "project", sectionId: "second" }, "owner");
+    assert.deepEqual(first.labelIds, ["label"]);
+    assert.deepEqual(first.assigneeUserIds, ["editor"]);
+    assert.equal(first.recurrence.frequency, "daily");
+    assert.equal(first.activities[0].action, "created");
+    const moved = await h.todo.todoListMoveItem(first.id, "project", "second", "editor", 0);
+    assert.equal(moved.position, 0);
+    assert.equal(moved.sectionId, "second");
+    assert.equal(h.root.todoList.TodoListItems[target.id].position, 1);
+    assert.equal(h.root.todoList.TodoListItems[second.id].position, 0);
+    assert.deepEqual(moved.activities.map((a) => a.action).sort(), ["created", "moved"]);
+    const events = Object.values(h.root.auditOutbox);
+    assert.deepEqual(events.map((e) => e.action), ["todo.item.created", "todo.item.created", "todo.item.created", "todo.item.moved"]);
+    assert.equal(events.at(-1).targetId, first.id);
+    assert.equal(events.at(-1).actorId, "editor");
+    assert.doesNotMatch(JSON.stringify(events), /private|secret/);
+    const published = [];
+    const worker = new AuditOutboxWorker({ getRealtimeDatabase: () => h.database,
+        getFirestoreDatabase: () => ({ collection: () => ({ doc: () => ({ create: async (e) => published.push(e) }) }) }) });
+    await worker.flush();
+    assert.equal(published.length, 4);
+});
+
+test("item transactions revalidate sections, permissions and assignees on retry", async () => {
+    const h = harness({
+        authUsers: { owner: {}, editor: {} },
+        todoList: { TodoLists: { project: { ownerUserId: "owner" } },
+            TodoListMembers: { project: { editor: { role: "editor" } } },
+            TodoListSections: { section: { todoListId: "project" } } }
+    });
+    h.retry((root) => { delete root.todoList.TodoListSections.section; });
+    await assert.rejects(h.todo.todoListCreateItem({ title: "new", todoListId: "project", sectionId: "section" }, "editor"),
+        { statusCode: 404 });
+    assert.equal(h.root.auditOutbox, undefined);
+    h.root.todoList.TodoListSections.section = { todoListId: "project" };
+    const item = await h.todo.todoListCreateItem({ title: "new", todoListId: "project", sectionId: "section",
+        assigneeUserIds: ["editor"] }, "editor");
+    const count = Object.keys(h.root.auditOutbox).length;
+    h.retry((root) => { delete root.todoList.TodoListMembers.project.editor; });
+    await assert.rejects(h.todo.todoListMoveItem(item.id, "project", "section", "editor", 0), { statusCode: 404 });
+    assert.equal(Object.keys(h.root.auditOutbox).length, count);
+    h.fail();
+    await assert.rejects(h.todo.todoListMoveItem(item.id, "project", "section", "owner", 0), /database unavailable/);
+    assert.equal(Object.keys(h.root.auditOutbox).length, count);
+});
+
+test("item creation rechecks project, label and assignee references", async () => {
+    const make = () => harness({
+        authUsers: { owner: {}, editor: {} },
+        todoList: {
+            TodoLists: { project: { ownerUserId: "owner" } },
+            TodoListMembers: { project: { editor: { role: "editor" } } },
+            TodoListSections: { section: { todoListId: "project" } },
+            TodoListLabels: { label: { ownerUserId: "owner" } }
+        }
+    });
+    const payload = { title: "title", todoListId: "project", sectionId: "section",
+        labelIds: ["label"], assigneeUserIds: ["editor"] };
+    const cases = [
+        [(root) => { root.todoList.TodoLists.project.isArchived = true; }, 409],
+        [(root) => { delete root.todoList.TodoListLabels.label; }, 400],
+        [(root) => { root.authUsers.editor.isActive = false; }, 404],
+        [(root) => { delete root.todoList.TodoListMembers.project.editor; }, 400]
+    ];
+    for (const [change, statusCode] of cases) {
+        const h = make();
+        h.retry(change);
+        await assert.rejects(h.todo.todoListCreateItem(payload, "owner"), { statusCode });
+        assert.equal(h.root.todoList.TodoListItems, undefined);
+        assert.equal(h.root.todoList.TodoListActivities, undefined);
+        assert.equal(h.root.auditOutbox, undefined);
+    }
+});
+
+test("personal task creation preserves existing response shape", async () => {
+    const h = harness({ authUsers: { owner: { firstName: "Ada" } } });
+    const item = await h.todo.todoListCreateItem({ title: "private task" }, "owner");
+    assert.equal(item.todoListId, "");
+    assert.deepEqual(item.assigneeUserIds, []);
+    assert.deepEqual(item.labelIds, []);
+    assert.deepEqual(item.children, []);
+    assert.equal(item.recurrence, null);
+    assert.equal(item.activities[0].userName, "Ada");
 });
 
 test("section changes and reorder are atomic, sanitized and publishable", async () => {

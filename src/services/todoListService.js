@@ -964,7 +964,130 @@ function todoListNormalizeRecurrence(value, dueDate) {
     return recurrence;
 }
 
+function todoListAuditedItemDestination(data, root, listId, sectionId, userId, labelIds, assigneeIds, moving = false) {
+    let ownerId = userId;
+    if (listId) {
+        todoListValidateAuditId(listId);
+        todoListAuditedSectionProject(data, listId, userId);
+        const project = data.TodoLists[listId];
+        if (project.isArchived) {
+            throw todoListError(moving
+                ? "No se pueden mover tareas a un proyecto archivado."
+                : "No se pueden añadir tareas a un proyecto archivado.", 409);
+        }
+        ownerId = project.ownerUserId;
+    }
+    if (sectionId) {
+        todoListValidateAuditId(sectionId);
+        const sections = data.TodoListSections || {};
+        if (!Object.hasOwn(sections, sectionId) || !sections[sectionId]) throw todoListError("La sección no existe.", 404);
+        todoListAuditedSectionProject(data, sections[sectionId].todoListId, userId);
+        if (sections[sectionId].todoListId !== listId) throw todoListError("La sección no pertenece al proyecto seleccionado.", 400);
+    }
+    const labels = data.TodoListLabels || {};
+    for (const id of labelIds) {
+        todoListValidateAuditId(id);
+        if (!Object.hasOwn(labels, id) || labels[id]?.ownerUserId !== ownerId) {
+            throw todoListError("Una de las etiquetas seleccionadas no está disponible.", 400);
+        }
+    }
+    const users = root.authUsers || {};
+    const memberships = data.TodoListMembers || {};
+    const members = listId && Object.hasOwn(memberships, listId) ? memberships[listId] : {};
+    for (const id of assigneeIds) {
+        if (typeof id !== "string" || !/^[A-Za-z0-9_-]+$/.test(id) ||
+            !Object.hasOwn(users, id) || !users[id] || users[id].isActive === false) {
+            throw todoListError("El usuario no está disponible.", 404);
+        }
+        if (listId && id !== ownerId && !Object.hasOwn(members || {}, id)) {
+            throw todoListError("Solo se pueden asignar tareas a usuarios del proyecto.", 400);
+        }
+        if (!listId && id !== userId) {
+            throw todoListError("Añade la tarea a un proyecto compartido para asignarla a otra persona.", 400);
+        }
+    }
+    return ownerId;
+}
+
+function todoListAuditedItem(data, itemId, userId) {
+    const items = data.TodoListItems || {};
+    if (!Object.hasOwn(items, itemId) || !items[itemId]) throw todoListError("La tarea no existe.", 404);
+    const item = items[itemId];
+    if (item.todoListId) todoListAuditedSectionProject(data, item.todoListId, userId);
+    else {
+        const relations = data.TodoListItemAssignees || {};
+        const assignees = Object.hasOwn(relations, itemId) ? relations[itemId] : {};
+        if (item.createdByUserId !== userId && !(Object.hasOwn(assignees || {}, userId) && assignees[userId])) {
+            throw todoListError("La tarea no existe o no tienes permiso para acceder.", 404);
+        }
+    }
+    return item;
+}
+
+function todoListAuditedRelationIds(data, collection, itemId) {
+    const relations = data[collection] || {};
+    const entry = Object.hasOwn(relations, itemId) ? relations[itemId] : {};
+    return Object.keys(entry || {}).filter((id) => entry[id]);
+}
+
+function todoListAuditedActivity(data, itemId, activityId, userId, action, previousValue, newValue, now) {
+    data.TodoListActivities = data.TodoListActivities || {};
+    const activities = Object.hasOwn(data.TodoListActivities, itemId) ? data.TodoListActivities[itemId] : {};
+    if (Object.hasOwn(activities || {}, activityId)) throw todoListError("La actividad ya existe.", 409);
+    data.TodoListActivities[itemId] = { ...activities, [activityId]: {
+        todoListItemId: itemId, userId, action, previousValue, newValue, createdAt: now
+    } };
+}
+
 async function todoListCreateItem(payload, todoListUserId) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListUserId);
+        const id = randomUUID();
+        const activityId = randomUUID();
+        const recurrenceId = randomUUID();
+        const now = new Date().toISOString();
+        await transactTodoItem({ targetId: id, actorId: todoListUserId, action: "todo.item.created",
+            change: (data, root) => {
+                const title = todoListNormalizeName(payload?.title, "El título", 200);
+                const listId = payload?.todoListId || "";
+                const sectionId = payload?.sectionId || "";
+                const dueDate = todoListValidateDate(payload?.dueDate || "");
+                if (payload?.isImportant !== undefined && typeof payload.isImportant !== "boolean") {
+                    throw todoListError("La importancia debe ser verdadera o falsa.");
+                }
+                const assignees = todoListValidateStringArray(payload?.assigneeUserIds, "Los responsables");
+                const labels = todoListValidateStringArray(payload?.labelIds, "Las etiquetas");
+                const recurrence = todoListNormalizeRecurrence(payload?.recurrence, dueDate);
+                const ownerId = todoListAuditedItemDestination(data, root, listId, sectionId, todoListUserId, labels, assignees);
+                const items = data.TodoListItems || {};
+                if (Object.hasOwn(items, id)) throw todoListError("La tarea ya existe.", 409);
+                if (recurrence && Object.hasOwn(data.TodoListRecurrences || {}, recurrenceId)) {
+                    throw todoListError("La recurrencia ya existe.", 409);
+                }
+                const item = {
+                    title, description: todoListNormalizeDescription(payload?.description), todoListId: listId, sectionId,
+                    parentItemId: payload?.parentItemId || "", ownerUserId: ownerId, status: "pending",
+                    priority: todoListValidatePriority(payload?.priority), isImportant: payload?.isImportant ?? false,
+                    dueDate, dueTime: todoListValidateTime(payload?.dueTime || ""),
+                    timeZone: todoListValidateTimeZone(payload?.timeZone || "UTC"),
+                    recurrenceId: recurrence ? recurrenceId : "",
+                    position: Object.values(items).filter((entry) => entry?.todoListId === listId &&
+                        entry?.sectionId === sectionId && entry?.isArchived !== true).length,
+                    createdByUserId: todoListUserId, completedAt: "", isArchived: false, createdAt: now, updatedAt: now
+                };
+                data.TodoListItems = { ...items, [id]: item };
+                if (labels.length) data.TodoListItemLabels = { ...(data.TodoListItemLabels || {}),
+                    [id]: Object.fromEntries(labels.map((label) => [label, true])) };
+                if (assignees.length) data.TodoListItemAssignees = { ...(data.TodoListItemAssignees || {}),
+                    [id]: Object.fromEntries(assignees.map((assignee) => [assignee, true])) };
+                if (recurrence) data.TodoListRecurrences = { ...(data.TodoListRecurrences || {}), [recurrenceId]: {
+                    ...recurrence, todoListItemId: id, ownerUserId: todoListUserId, nextDueDate: dueDate
+                } };
+                todoListAuditedActivity(data, id, activityId, todoListUserId, "created", null, { title }, now);
+                return { value: data, result: true };
+            } });
+        return todoListGetItem(id, todoListUserId);
+    }
     const todoListTitle = todoListNormalizeName(payload?.title, "El título", 200);
     const todoListId = payload?.todoListId || "";
     let todoListOwnerUserId = todoListUserId;
@@ -1565,6 +1688,42 @@ async function todoListSetItemPriority(todoListItemId, priority, todoListUserId)
 }
 
 async function todoListMoveItem(todoListItemId, todoListId, sectionId, todoListUserId, position) {
+    if (isTodoItemAuditEnabled()) {
+        todoListValidateAuditId(todoListItemId);
+        todoListValidateAuditId(todoListUserId);
+        const activityId = randomUUID();
+        const now = new Date().toISOString();
+        await transactTodoItem({ targetId: todoListItemId, actorId: todoListUserId, action: "todo.item.moved",
+            change: (data, root) => {
+                const item = todoListAuditedItem(data, todoListItemId, todoListUserId);
+                const listId = todoListId || "";
+                const targetSection = sectionId || "";
+                if (position !== undefined && (!Number.isInteger(position) || position < 0)) {
+                    throw todoListError("La posición no es válida.");
+                }
+                const labels = todoListAuditedRelationIds(data, "TodoListItemLabels", todoListItemId);
+                const assignees = todoListAuditedRelationIds(data, "TodoListItemAssignees", todoListItemId);
+                todoListAuditedItemDestination(data, root, listId, targetSection, todoListUserId, labels, assignees, true);
+                const items = data.TodoListItems;
+                const siblings = (projectId, section) => Object.entries(items).filter(([id, other]) =>
+                    id !== todoListItemId && other.todoListId === projectId && other.sectionId === section &&
+                    other.isArchived !== true).sort((a, b) => a[1].position - b[1].position);
+                const target = siblings(listId, targetSection);
+                const index = Math.min(position ?? target.length, target.length);
+                const oldList = item.todoListId;
+                const oldSection = item.sectionId;
+                if (oldList !== listId || oldSection !== targetSection) {
+                    siblings(oldList, oldSection).forEach(([, value], order) => { value.position = order; });
+                }
+                target.splice(index, 0, [todoListItemId, item]);
+                target.forEach(([, value], order) => { value.position = order; });
+                Object.assign(item, { todoListId: listId, sectionId: targetSection, updatedAt: now });
+                todoListAuditedActivity(data, todoListItemId, activityId, todoListUserId, "moved",
+                    { todoListId: oldList, sectionId: oldSection }, { todoListId: listId, sectionId: targetSection }, now);
+                return { value: data, result: true };
+            } });
+        return todoListGetItem(todoListItemId, todoListUserId);
+    }
     const { item: todoListItem } = await todoListGetItemAccess(todoListItemId, todoListUserId, true);
     const todoListTargetListId = todoListId || "";
     const todoListTargetSectionId = sectionId || "";
