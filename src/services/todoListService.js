@@ -1,6 +1,9 @@
 const { randomUUID } = require("node:crypto");
 const { getAdminDatabase } = require("../config/firebaseAdmin");
 const {
+    isTodoProjectAuditEnabled, transactTodoProject, isTodoSectionAuditEnabled, transactTodoSection
+} = require("../audit/businessOutbox");
+const {
     todoListDeleteAttachment,
     todoListGetAttachmentUrl,
     todoListUploadAttachment
@@ -344,7 +347,80 @@ async function todoListAddActivity(todoListItemId, todoListUserId, action, previ
     });
 }
 
+function todoListAuditedProject(data, projectId, userId) {
+    if (typeof projectId !== "string" || !/^[A-Za-z0-9_-]+$/.test(projectId) ||
+        typeof userId !== "string" || !/^[A-Za-z0-9_-]+$/.test(userId)) {
+        throw todoListError("El identificador solicitado no es válido.");
+    }
+    const projects = data.TodoLists || {};
+    if (!Object.hasOwn(projects, projectId)) throw todoListError("El proyecto no existe.", 404);
+    const project = projects[projectId];
+    if (project.ownerUserId !== userId) {
+        if (!data.TodoListMembers?.[projectId]?.[userId]) {
+            throw todoListError("El proyecto no existe o no tienes permiso para acceder.", 404);
+        }
+        throw todoListError("No tienes permiso para modificar este proyecto.", 403);
+    }
+    return project;
+}
+
+function todoListValidateAuditId(id) {
+    if (typeof id !== "string" || !/^[A-Za-z0-9_-]+$/.test(id)) {
+        throw todoListError("El identificador solicitado no es válido.");
+    }
+}
+
+function todoListAuditedProjectResult(data, projectId, project) {
+    const sections = Object.entries(data.TodoListSections || {})
+        .map(([id, value]) => ({ id, ...value }))
+        .filter((section) => section.todoListId === projectId)
+        .sort((left, right) => left.position - right.position);
+    return { id: projectId, ...project, sections };
+}
+
+function todoListAuditedProjects(data, userId) {
+    const memberships = data.TodoListMembers || {};
+    const items = Object.values(data.TodoListItems || {});
+    return Object.entries(data.TodoLists || {})
+        .map(([id, project]) => ({ id, ...project }))
+        .filter((project) => project.ownerUserId === userId ||
+            (Object.hasOwn(memberships, project.id) &&
+                Object.hasOwn(memberships[project.id], userId) && Boolean(memberships[project.id][userId])))
+        .map((project) => ({
+            ...project,
+            pendingCount: items.filter((item) => item?.todoListId === project.id &&
+                item.status !== "completed" && item.isArchived !== true).length
+        }))
+        .sort((left, right) => left.position - right.position);
+}
+
 async function todoListCreateProject(todoListPayload, todoListUserId) {
+    if (isTodoProjectAuditEnabled()) {
+        if (typeof todoListUserId !== "string" || !/^[A-Za-z0-9_-]+$/.test(todoListUserId)) {
+            throw todoListError("El usuario no está disponible.", 404);
+        }
+        const id = randomUUID();
+        const now = new Date().toISOString();
+        return transactTodoProject({ targetId: id, actorId: todoListUserId, action: "todo.project.created",
+            change: (data, root) => {
+                const users = root.authUsers || {};
+                if (!Object.hasOwn(users, todoListUserId) || !users[todoListUserId] || users[todoListUserId].isActive === false) {
+                    throw todoListError("El usuario no está disponible.", 404);
+                }
+                const projects = data.TodoLists || {};
+                if (Object.hasOwn(projects, id)) throw todoListError("El proyecto ya existe.", 409);
+                const project = {
+                    name: todoListNormalizeName(todoListPayload?.name, "El nombre del proyecto"),
+                    description: todoListNormalizeDescription(todoListPayload?.description),
+                    color: todoListValidateColor(todoListPayload?.color || "blue"),
+                    ownerUserId: todoListUserId,
+                    position: Object.values(projects).filter((value) => value.ownerUserId === todoListUserId).length,
+                    isArchived: false, createdAt: now, updatedAt: now
+                };
+                data.TodoLists = { ...projects, [id]: project };
+                return { value: data, result: { id, ...project } };
+            } });
+    }
     const todoListOwner = await todoListGetUser(todoListUserId);
     const todoListProjectId = randomUUID();
     const todoListProjects = await todoListRef("TodoLists").get();
@@ -401,6 +477,22 @@ async function todoListGetProject(todoListId, todoListUserId) {
 }
 
 async function todoListUpdateProject(todoListId, todoListPayload, todoListUserId) {
+    if (isTodoProjectAuditEnabled()) {
+        todoListValidateAuditId(todoListId);
+        todoListValidateAuditId(todoListUserId);
+        const now = new Date().toISOString();
+        return transactTodoProject({ targetId: todoListId, actorId: todoListUserId, action: "todo.project.updated",
+            change: (data) => {
+                const project = todoListAuditedProject(data, todoListId, todoListUserId);
+                const changes = {};
+                if (Object.hasOwn(todoListPayload || {}, "name")) changes.name = todoListNormalizeName(todoListPayload.name, "El nombre del proyecto");
+                if (Object.hasOwn(todoListPayload || {}, "description")) changes.description = todoListNormalizeDescription(todoListPayload.description);
+                if (Object.hasOwn(todoListPayload || {}, "color")) changes.color = todoListValidateColor(todoListPayload.color);
+                if (!Object.keys(changes).length) throw todoListError("No hay cambios para guardar.");
+                Object.assign(project, changes, { updatedAt: now });
+                return { value: data, result: todoListAuditedProjectResult(data, todoListId, project) };
+            } });
+    }
     await todoListAssertProjectPermission(todoListId, todoListUserId, true, true);
     const todoListChanges = {};
     if (Object.hasOwn(todoListPayload || {}, "name")) {
@@ -419,6 +511,19 @@ async function todoListUpdateProject(todoListId, todoListPayload, todoListUserId
 }
 
 async function todoListArchiveProject(todoListId, isArchived, todoListUserId) {
+    if (isTodoProjectAuditEnabled()) {
+        todoListValidateAuditId(todoListId);
+        todoListValidateAuditId(todoListUserId);
+        const now = new Date().toISOString();
+        return transactTodoProject({ targetId: todoListId, actorId: todoListUserId,
+            action: isArchived ? "todo.project.archived" : "todo.project.restored",
+            change: (data) => {
+                const project = todoListAuditedProject(data, todoListId, todoListUserId);
+                if (typeof isArchived !== "boolean") throw todoListError("El valor de archivado no es válido.");
+                Object.assign(project, { isArchived, updatedAt: now });
+                return { value: data, result: todoListAuditedProjectResult(data, todoListId, project) };
+            } });
+    }
     await todoListAssertProjectPermission(todoListId, todoListUserId, true, true);
     if (typeof isArchived !== "boolean") throw todoListError("El valor de archivado no es válido.");
     await todoListRef(`TodoLists/${todoListId}`).update({
@@ -429,6 +534,24 @@ async function todoListArchiveProject(todoListId, isArchived, todoListUserId) {
 }
 
 async function todoListDeleteProject(todoListId, todoListUserId) {
+    if (isTodoProjectAuditEnabled()) {
+        todoListValidateAuditId(todoListId);
+        todoListValidateAuditId(todoListUserId);
+        await transactTodoProject({ targetId: todoListId, actorId: todoListUserId, action: "todo.project.deleted",
+            change: (data) => {
+                todoListAuditedProject(data, todoListId, todoListUserId);
+                if (Object.values(data.TodoListItems || {}).some((item) => item?.todoListId === todoListId)) {
+                    throw todoListError("El proyecto contiene tareas. Muévelas o elimínalas antes de borrar el proyecto.", 409);
+                }
+                delete data.TodoLists[todoListId];
+                if (data.TodoListMembers) delete data.TodoListMembers[todoListId];
+                for (const [id, section] of Object.entries(data.TodoListSections || {})) {
+                    if (section.todoListId === todoListId) delete data.TodoListSections[id];
+                }
+                return { value: data, result: true };
+            } });
+        return;
+    }
     await todoListAssertProjectPermission(todoListId, todoListUserId, true, true);
     const todoListItemsSnapshot = await todoListRef("TodoListItems").get();
     if (Object.values(todoListItemsSnapshot.val() || {}).some((item) => item?.todoListId === todoListId)) {
@@ -448,6 +571,25 @@ async function todoListDeleteProject(todoListId, todoListUserId) {
 }
 
 async function todoListReorderProjects(todoListIds, todoListUserId) {
+    if (isTodoProjectAuditEnabled()) {
+        todoListValidateAuditId(todoListUserId);
+        return transactTodoProject({
+        targetId: "todoList", actorId: todoListUserId, action: "todo.project.reordered",
+        change: (data) => {
+            if (!Array.isArray(todoListIds) || new Set(todoListIds).size !== todoListIds.length) {
+                throw todoListError("El orden de proyectos no es válido.");
+            }
+            const owned = Object.entries(data.TodoLists || {}).filter(([, project]) => project.ownerUserId === todoListUserId);
+            if (owned.length !== todoListIds.length ||
+                todoListIds.some((id) => !owned.some(([ownedId]) => ownedId === id))) {
+                throw todoListError("Solo puedes reordenar tus propios proyectos.");
+            }
+            if (!todoListIds.length) return { unchanged: true, result: todoListAuditedProjects(data, todoListUserId) };
+            todoListIds.forEach((id, position) => { data.TodoLists[id].position = position; });
+            return { value: data, result: todoListAuditedProjects(data, todoListUserId) };
+        }
+        });
+    }
     if (!Array.isArray(todoListIds) || new Set(todoListIds).size !== todoListIds.length) {
         throw todoListError("El orden de proyectos no es válido.");
     }
@@ -476,6 +618,35 @@ async function todoListGetMembers(todoListId, todoListUserId) {
 }
 
 async function todoListAddMember(todoListId, todoListMemberId, role, todoListUserId) {
+    if (isTodoProjectAuditEnabled()) {
+        todoListValidateAuditId(todoListId);
+        todoListValidateAuditId(todoListUserId);
+        if (typeof todoListMemberId !== "string" || !/^[A-Za-z0-9_-]+$/.test(todoListMemberId)) {
+            throw todoListError("El usuario no está disponible.", 404);
+        }
+        const now = new Date().toISOString();
+        return transactTodoProject({ targetId: todoListMemberId, projectId: todoListId,
+            actorId: todoListUserId, action: "todo.member.added",
+            change: (data, root) => {
+                todoListAuditedProject(data, todoListId, todoListUserId);
+                if (!["editor", "viewer"].includes(role)) throw todoListError("El permiso del miembro no es válido.");
+                if (typeof todoListMemberId !== "string" || !/^[A-Za-z0-9_-]+$/.test(todoListMemberId)) {
+                    throw todoListError("El usuario no está disponible.", 404);
+                }
+                const users = root.authUsers || {};
+                const member = Object.hasOwn(users, todoListMemberId) ? users[todoListMemberId] : null;
+                if (!member || member.isActive === false) throw todoListError("El usuario no está disponible.", 404);
+                data.TodoListMembers = data.TodoListMembers || {};
+                data.TodoListMembers[todoListId] = {
+                    ...(Object.hasOwn(data.TodoListMembers, todoListId) ? data.TodoListMembers[todoListId] : {}),
+                    [todoListMemberId]: { role, addedByUserId: todoListUserId, addedAt: now }
+                };
+                return { value: data, result: {
+                    id: todoListMemberId, firstName: member.firstName || "", lastName: member.lastName || "",
+                    profileImage: member.profileImage || "", role
+                } };
+            } });
+    }
     await todoListAssertProjectPermission(todoListId, todoListUserId, true, true);
     if (!["editor", "viewer"].includes(role)) throw todoListError("El permiso del miembro no es válido.");
     const todoListMember = await todoListGetUser(todoListMemberId);
@@ -489,6 +660,34 @@ async function todoListAddMember(todoListId, todoListMemberId, role, todoListUse
 }
 
 async function todoListRemoveMember(todoListId, todoListMemberId, todoListUserId) {
+    if (isTodoProjectAuditEnabled()) {
+        todoListValidateAuditId(todoListId);
+        todoListValidateAuditId(todoListMemberId);
+        todoListValidateAuditId(todoListUserId);
+        await transactTodoProject({ targetId: todoListMemberId, projectId: todoListId,
+            actorId: todoListUserId, action: "todo.member.removed",
+            change: (data) => {
+                const project = todoListAuditedProject(data, todoListId, todoListUserId);
+                if (typeof todoListMemberId !== "string" || !/^[A-Za-z0-9_-]+$/.test(todoListMemberId)) {
+                    throw todoListError("El identificador solicitado no es válido.");
+                }
+                if (project.ownerUserId === todoListMemberId) {
+                    throw todoListError("No se puede retirar al propietario del proyecto.", 409);
+                }
+                const members = data.TodoListMembers?.[todoListId];
+                let changed = Boolean(members && Object.hasOwn(members, todoListMemberId));
+                if (members) delete members[todoListMemberId];
+                for (const [id, item] of Object.entries(data.TodoListItems || {})) {
+                    const assignees = data.TodoListItemAssignees?.[id];
+                    if (item.todoListId === todoListId && assignees && Object.hasOwn(assignees, todoListMemberId)) {
+                        delete assignees[todoListMemberId];
+                        changed = true;
+                    }
+                }
+                return changed ? { value: data, result: true } : { unchanged: true, result: true };
+            } });
+        return;
+    }
     const { project } = await todoListAssertProjectPermission(todoListId, todoListUserId, true, true);
     if (project.ownerUserId === todoListMemberId) {
         throw todoListError("No se puede retirar al propietario del proyecto.", 409);
@@ -511,7 +710,52 @@ async function todoListListSections(todoListId, todoListUserId) {
         .sort((left, right) => left.position - right.position);
 }
 
+function todoListAuditedSectionProject(data, projectId, userId) {
+    todoListValidateAuditId(projectId);
+    const projects = data.TodoLists || {};
+    if (!Object.hasOwn(projects, projectId) || !projects[projectId]) throw todoListError("El proyecto no existe.", 404);
+    if (projects[projectId].ownerUserId === userId) return;
+    const memberships = data.TodoListMembers || {};
+    const members = Object.hasOwn(memberships, projectId) ? memberships[projectId] : null;
+    const member = members && Object.hasOwn(members, userId) ? members[userId] : null;
+    if (!member) throw todoListError("El proyecto no existe o no tienes permiso para acceder.", 404);
+    if (member.role !== "editor") throw todoListError("No tienes permiso para modificar este proyecto.", 403);
+}
+
+function todoListAuditedSection(data, sectionId, userId) {
+    const sections = data.TodoListSections || {};
+    if (!Object.hasOwn(sections, sectionId) || !sections[sectionId]) throw todoListError("La sección no existe.", 404);
+    const section = sections[sectionId];
+    todoListAuditedSectionProject(data, section.todoListId, userId);
+    return section;
+}
+
+function todoListAuditedSections(data, projectId) {
+    return Object.entries(data.TodoListSections || {})
+        .map(([id, section]) => ({ id, ...section }))
+        .filter((section) => section.todoListId === projectId)
+        .sort((left, right) => left.position - right.position);
+}
+
 async function todoListCreateSection(todoListId, payload, todoListUserId) {
+    if (isTodoSectionAuditEnabled()) {
+        todoListValidateAuditId(todoListId);
+        todoListValidateAuditId(todoListUserId);
+        const id = randomUUID();
+        const now = new Date().toISOString();
+        return transactTodoSection({ targetId: id, actorId: todoListUserId, action: "todo.section.created",
+            change: (data) => {
+                todoListAuditedSectionProject(data, todoListId, todoListUserId);
+                const sections = data.TodoListSections || {};
+                if (Object.hasOwn(sections, id)) throw todoListError("La sección ya existe.", 409);
+                const section = {
+                    todoListId, name: todoListNormalizeName(payload?.name, "El nombre de la sección"),
+                    position: todoListAuditedSections(data, todoListId).length, createdAt: now, updatedAt: now
+                };
+                data.TodoListSections = { ...sections, [id]: section };
+                return { value: data, result: { id, ...section } };
+            } });
+    }
     await todoListAssertProjectPermission(todoListId, todoListUserId, true);
     const todoListSections = await todoListListSections(todoListId, todoListUserId);
     const todoListSectionId = randomUUID();
@@ -536,6 +780,19 @@ async function todoListGetSectionAccess(todoListSectionId, todoListUserId, write
 }
 
 async function todoListUpdateSection(todoListSectionId, payload, todoListUserId) {
+    if (isTodoSectionAuditEnabled()) {
+        todoListValidateAuditId(todoListSectionId);
+        todoListValidateAuditId(todoListUserId);
+        const now = new Date().toISOString();
+        return transactTodoSection({ targetId: todoListSectionId, actorId: todoListUserId, action: "todo.section.updated",
+            change: (data) => {
+                const section = todoListAuditedSection(data, todoListSectionId, todoListUserId);
+                if (!Object.hasOwn(payload || {}, "name")) throw todoListError("No hay cambios para guardar.");
+                section.name = todoListNormalizeName(payload.name, "El nombre de la sección");
+                section.updatedAt = now;
+                return { value: data, result: { id: todoListSectionId, ...section } };
+            } });
+    }
     await todoListGetSectionAccess(todoListSectionId, todoListUserId, true);
     const todoListChanges = {};
     if (Object.hasOwn(payload || {}, "name")) {
@@ -548,6 +805,20 @@ async function todoListUpdateSection(todoListSectionId, payload, todoListUserId)
 }
 
 async function todoListDeleteSection(todoListSectionId, todoListUserId) {
+    if (isTodoSectionAuditEnabled()) {
+        todoListValidateAuditId(todoListSectionId);
+        todoListValidateAuditId(todoListUserId);
+        return transactTodoSection({ targetId: todoListSectionId, actorId: todoListUserId, action: "todo.section.deleted",
+            change: (data) => {
+                const section = todoListAuditedSection(data, todoListSectionId, todoListUserId);
+                if (Object.values(data.TodoListItems || {}).some((item) => item?.sectionId === todoListSectionId)) {
+                    throw todoListError("La sección contiene tareas. Muévelas a otra sección antes de eliminarla.", 409);
+                }
+                const result = { id: todoListSectionId, ...section };
+                delete data.TodoListSections[todoListSectionId];
+                return { value: data, result };
+            } });
+    }
     const todoListSection = await todoListGetSectionAccess(todoListSectionId, todoListUserId, true);
     const todoListItemsSnapshot = await todoListRef("TodoListItems").get();
     if (Object.values(todoListItemsSnapshot.val() || {}).some((item) => item?.sectionId === todoListSectionId)) {
@@ -558,6 +829,22 @@ async function todoListDeleteSection(todoListSectionId, todoListUserId) {
 }
 
 async function todoListSetSectionPosition(todoListSectionId, position, todoListUserId) {
+    if (isTodoSectionAuditEnabled()) {
+        todoListValidateAuditId(todoListSectionId);
+        todoListValidateAuditId(todoListUserId);
+        return transactTodoSection({ targetId: todoListSectionId, actorId: todoListUserId, action: "todo.section.reordered",
+            change: (data) => {
+                const section = todoListAuditedSection(data, todoListSectionId, todoListUserId);
+                const sections = todoListAuditedSections(data, section.todoListId);
+                if (!Number.isInteger(position) || position < 0 || position >= sections.length) {
+                    throw todoListError("La posición de la sección no es válida.");
+                }
+                const [moved] = sections.splice(todoListMovedIndex(sections, todoListSectionId), 1);
+                sections.splice(position, 0, moved);
+                sections.forEach((item, index) => { data.TodoListSections[item.id].position = index; item.position = index; });
+                return { value: data, result: sections };
+            } });
+    }
     const todoListSection = await todoListGetSectionAccess(todoListSectionId, todoListUserId, true);
     const todoListSections = await todoListListSections(todoListSection.todoListId, todoListUserId);
     if (!Number.isInteger(position) || position < 0 || position >= todoListSections.length) {

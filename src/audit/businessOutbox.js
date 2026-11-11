@@ -58,6 +58,26 @@ function isTaskBoardTaskAuditEnabled() {
     return enabled;
 }
 
+function isTodoProjectAuditEnabled() {
+    return process.env.AUDIT_TODO_PROJECTS_ENABLED === "true";
+}
+
+function isTodoSectionAuditEnabled() {
+    const enabled = process.env.AUDIT_TODO_SECTIONS_ENABLED === "true";
+    if (enabled && !isTodoProjectAuditEnabled()) {
+        throw new Error("AUDIT_TODO_SECTIONS_ENABLED requiere AUDIT_TODO_PROJECTS_ENABLED.");
+    }
+    return enabled;
+}
+
+function isDrawingDocumentAuditEnabled() {
+    return process.env.AUDIT_DRAWING_DOCUMENTS_ENABLED === "true";
+}
+
+function isDrawingPageAuditEnabled() {
+    return process.env.AUDIT_DRAWING_PAGES_ENABLED === "true";
+}
+
 async function transactEntity({ id, actorId, action, change, database, collection, allowEmptyRoot, collectionPath, targetId = id, auditScope }) {
     if (typeof id !== "string" || !id || /[.#$/\[\]\u0000-\u001f\u007f]/.test(id) ||
         typeof targetId !== "string" || !targetId || /[.#$/\[\]\u0000-\u001f\u007f]/.test(targetId) ||
@@ -198,6 +218,66 @@ function transactTaskBoardTask({ targetId, actorId, action, change, database = g
     });
 }
 
+async function transactTodoProject({ targetId, actorId, action, projectId, change, database = getAdminDatabase() }) {
+    const actions = [
+        "todo.project.created", "todo.project.updated", "todo.project.archived",
+        "todo.project.restored", "todo.project.deleted", "todo.project.reordered",
+        "todo.member.added", "todo.member.removed"
+    ];
+    if (!actions.includes(action)) throw new Error("Acción de auditoría de proyecto no válida.");
+    if (action.startsWith("todo.member.") &&
+        (typeof projectId !== "string" || !projectId || /[.#$/\[\]\u0000-\u001f\u007f]/.test(projectId))) {
+        throw new Error("Identificador de proyecto de auditoría no válido.");
+    }
+    const result = await transactEntity({
+        id: "todoList", targetId, actorId, action, database, collectionPath: [],
+        allowEmptyRoot: false, change: (data, _entities, root) => {
+            const outcome = change(data || {}, root);
+            return outcome && action.startsWith("todo.member.")
+                ? { ...outcome, auditDetails: { projectId } } : outcome;
+        }
+    });
+    if (result === null) {
+        throw Object.assign(new Error("No se pudo confirmar la operación auditada de proyectos."), { statusCode: 503 });
+    }
+    return result;
+}
+
+async function transactTodoSection({ targetId, actorId, action, change, database = getAdminDatabase() }) {
+    const actions = ["todo.section.created", "todo.section.updated", "todo.section.deleted", "todo.section.reordered"];
+    if (!actions.includes(action)) throw new Error("Acción de auditoría de sección no válida.");
+    const result = await transactEntity({
+        id: "todoList", targetId, actorId, action, database, collectionPath: [],
+        allowEmptyRoot: false, change: (data) => change(data || {})
+    });
+    if (result === null) {
+        throw Object.assign(new Error("No se pudo confirmar la operación auditada de secciones."), { statusCode: 503 });
+    }
+    return result;
+}
+
+function transactDrawingDocument({ targetId, actorId, action, change, database = getAdminDatabase() }) {
+    const actions = [
+        "drawing.document.created", "drawing.document.updated", "drawing.document.archived",
+        "drawing.document.restored", "drawing.document.deleted"
+    ];
+    if (!actions.includes(action)) throw new Error("Acción de auditoría de pizarra no válida.");
+    return transactEntity({
+        id: "drawing", targetId, actorId, action, database, collectionPath: [],
+        allowEmptyRoot: action === "drawing.document.created",
+        change: (data, _entities, root) => change(data || {}, root)
+    });
+}
+
+function transactDrawingPage({ targetId, actorId, action, change, database = getAdminDatabase() }) {
+    const actions = ["drawing.page.created", "drawing.page.updated", "drawing.page.deleted", "drawing.page.reordered"];
+    if (!actions.includes(action)) throw new Error("Acción de auditoría de página no válida.");
+    return transactEntity({
+        id: "drawing", targetId, actorId, action, database, collectionPath: [],
+        allowEmptyRoot: false, change: (data) => change(data || {})
+    });
+}
+
 function transactRolePermissions({ id, actorId, change, database = getAdminDatabase() }) {
     return transactEntity({
         id, actorId, change, database, collection: "authRoles", allowEmptyRoot: false,
@@ -218,6 +298,8 @@ module.exports = {
     isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
     isRegistrationAuditEnabled, isWorkshopStorageAuditEnabled, isStorageBoxAuditEnabled, isRepairAuditEnabled,
     isCatalogAuditEnabled, isTaskBoardCatalogAuditEnabled, isTaskBoardTaskAuditEnabled,
+    isTodoProjectAuditEnabled, isTodoSectionAuditEnabled, isDrawingDocumentAuditEnabled, isDrawingPageAuditEnabled,
     transactTool, transactRolePermissions, transactAdminUser, transactWorkshopStorage, transactStorageBox,
-    transactStorageSettings, transactRepair, transactCatalog, transactTaskBoardCatalog, transactTaskBoardTask, MAX_ROOT_BYTES
+    transactStorageSettings, transactRepair, transactCatalog, transactTaskBoardCatalog, transactTaskBoardTask,
+    transactTodoProject, transactTodoSection, transactDrawingDocument, transactDrawingPage, MAX_ROOT_BYTES
 };

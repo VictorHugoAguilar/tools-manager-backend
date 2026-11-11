@@ -16,6 +16,7 @@ function eventFields(event) {
     if (event?.action === "workshop.category.created" || event?.action === "workshop.category.deleted") return [...scopedFields, "categoryId"];
     if (typeof event?.action === "string" && event.action.startsWith("box.product.")) return [...scopedFields, "boxId"];
     if (typeof event?.action === "string" && event.action.startsWith("repair.")) return [...EVENT_FIELDS, "toolId"];
+    if (typeof event?.action === "string" && event.action.startsWith("todo.member.")) return [...EVENT_FIELDS, "projectId"];
     if (event?.action === "role.permissions.updated") return [...EVENT_FIELDS, ...ROLE_FIELDS];
     if (event?.action === "user.role.updated") return [...EVENT_FIELDS, ...USER_ROLE_FIELDS];
     if (event?.action === "user.status.updated") return [...EVENT_FIELDS, ...USER_STATUS_FIELDS];
@@ -34,6 +35,7 @@ function validEvent(id, event) {
         (!fields.includes("categoryId") || typeof event.categoryId === "string") &&
         (!fields.includes("boxId") || typeof event.boxId === "string") &&
         (!fields.includes("toolId") || typeof event.toolId === "string") &&
+        (!fields.includes("projectId") || typeof event.projectId === "string") &&
         (event.action !== "role.permissions.updated" ||
             ROLE_FIELDS.every((key) => typeof event[key] === "string")) &&
         (event.action !== "user.role.updated" ||

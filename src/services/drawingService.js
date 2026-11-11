@@ -2,6 +2,9 @@ const { createHash, randomUUID } = require("node:crypto");
 const { getAdminDatabase, getAdminApp } = require("../config/firebaseAdmin");
 const { getStorage } = require("firebase-admin/storage");
 const { listSharedDocuments, requireDocumentAccess } = require("./drawingAccessService");
+const {
+    isDrawingDocumentAuditEnabled, transactDrawingDocument, isDrawingPageAuditEnabled, transactDrawingPage
+} = require("../audit/businessOutbox");
 
 const MAX_SNAPSHOT_BYTES = 750 * 1024;
 const MAX_SNAPSHOT_OBJECTS = 2500;
@@ -287,6 +290,29 @@ async function createDocument(payload, userId) {
         [`versionsByPage/${pageId}/0`]: { snapshotId, contentHash, createdAt: now, createdByUserId: userId },
         [`documentsByOwner/${userId}/${documentId}`]: true
     };
+    if (isDrawingDocumentAuditEnabled()) {
+        if (typeof userId !== "string" || !userId || /[.#$/\[\]\u0000-\u001f\u007f]/.test(userId)) {
+            throw serviceError("El identificador del usuario no es válido.");
+        }
+        return transactDrawingDocument({ targetId: documentId, actorId: userId, action: "drawing.document.created",
+            change: (data) => {
+                if (Object.hasOwn(data.documents || {}, documentId) ||
+                    Object.hasOwn(data.pages || {}, pageId) || Object.hasOwn(data.snapshots || {}, snapshotId)) {
+                    throw serviceError("La pizarra ya existe.", 409);
+                }
+                data.documents = { ...(data.documents || {}), [documentId]: document };
+                data.pages = { ...(data.pages || {}), [pageId]: page };
+                data.pagesByDocument = { ...(data.pagesByDocument || {}), [documentId]: { [pageId]: true } };
+                data.pagesByUser = { ...(data.pagesByUser || {}),
+                    [userId]: { ...(Object.hasOwn(data.pagesByUser || {}, userId) ? data.pagesByUser[userId] : {}), [pageId]: true } };
+                data.snapshots = { ...(data.snapshots || {}), [snapshotId]: updates[`snapshots/${snapshotId}`] };
+                data.versionsByPage = { ...(data.versionsByPage || {}),
+                    [pageId]: { 0: updates[`versionsByPage/${pageId}/0`] } };
+                data.documentsByOwner = { ...(data.documentsByOwner || {}),
+                    [userId]: { ...(Object.hasOwn(data.documentsByOwner || {}, userId) ? data.documentsByOwner[userId] : {}), [documentId]: true } };
+                return { value: data, result: { id: documentId, ...document, pages: [{ id: pageId, ...page }] } };
+            } });
+    }
     await drawingRef().update(updates);
     return { id: documentId, ...document, pages: [{ id: pageId, ...page }] };
 }
@@ -329,7 +355,32 @@ async function getDocument(documentId, userId, shareToken) {
     return { ...document, pages: await getPagesForDocument(documentId) };
 }
 
+function auditedOwnerDocument(data, documentId, userId) {
+    const documents = data.documents || {};
+    if (!Object.hasOwn(documents, documentId) || !documents[documentId] || documents[documentId].deletedAt) return null;
+    const document = documents[documentId];
+    if (document.ownerUserId !== userId) throw serviceError("No tienes permiso para realizar esta operación.", 403);
+    return document;
+}
+
 async function updateDocument(documentId, payload, userId) {
+    if (isDrawingDocumentAuditEnabled()) {
+        const now = new Date().toISOString();
+        return transactDrawingDocument({ targetId: documentId, actorId: userId, action: "drawing.document.updated",
+            change: (data) => {
+                const document = auditedOwnerDocument(data, documentId, userId);
+                if (!document) return null;
+                if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
+                    !Object.keys(payload).length || Object.keys(payload).some((key) => !["name", "description"].includes(key))) {
+                    throw serviceError("Los datos de la pizarra no son válidos.");
+                }
+                const changes = { updatedAt: now, version: document.version + 1 };
+                if (Object.hasOwn(payload, "name")) changes.name = normalizeName(payload.name);
+                if (Object.hasOwn(payload, "description")) changes.description = normalizeDescription(payload.description);
+                Object.assign(document, changes);
+                return { value: data, result: { id: documentId, ...document, accessRole: "Owner" } };
+            } });
+    }
     const document = await getDocumentForUser(documentId, userId, "Owner");
     if (!document) return null;
     if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
@@ -345,6 +396,18 @@ async function updateDocument(documentId, payload, userId) {
 }
 
 async function setDocumentArchived(documentId, isArchived, userId) {
+    if (isDrawingDocumentAuditEnabled()) {
+        const now = new Date().toISOString();
+        return transactDrawingDocument({ targetId: documentId, actorId: userId,
+            action: isArchived ? "drawing.document.archived" : "drawing.document.restored",
+            change: (data) => {
+                const document = auditedOwnerDocument(data, documentId, userId);
+                if (!document) return null;
+                if (typeof isArchived !== "boolean") throw serviceError("El estado de archivo no es válido.");
+                Object.assign(document, { isArchived, updatedAt: now, version: document.version + 1 });
+                return { value: data, result: { id: documentId, ...document, accessRole: "Owner" } };
+            } });
+    }
     const document = await getDocumentForUser(documentId, userId, "Owner");
     if (!document) return null;
     if (typeof isArchived !== "boolean") throw serviceError("El estado de archivo no es válido.");
@@ -354,6 +417,19 @@ async function setDocumentArchived(documentId, isArchived, userId) {
 }
 
 async function deleteDocument(documentId, userId) {
+    if (isDrawingDocumentAuditEnabled()) {
+        const now = new Date().toISOString();
+        return Boolean(await transactDrawingDocument({ targetId: documentId, actorId: userId,
+            action: "drawing.document.deleted", change: (data) => {
+                const document = auditedOwnerDocument(data, documentId, userId);
+                if (!document) return null;
+                Object.assign(document, { deletedAt: now, updatedAt: now, version: document.version + 1 });
+                if (Object.hasOwn(data.documentsByOwner || {}, userId)) {
+                    delete data.documentsByOwner[userId][documentId];
+                }
+                return { value: data, result: true };
+            } }));
+    }
     const document = await getDocumentForUser(documentId, userId, "Owner");
     if (!document) return false;
     const deletedAt = new Date().toISOString();
@@ -457,7 +533,81 @@ async function releasePageReservation(documentId, userId) {
     });
 }
 
+function auditedPageAccess(data, documentId, userId) {
+    const document = Object.hasOwn(data.documents || {}, documentId) ? data.documents[documentId] : null;
+    if (!document || document.deletedAt) return null;
+    let role = "Owner";
+    if (document.ownerUserId !== userId) {
+        const documentAccess = Object.hasOwn(data.access || {}, documentId) ? data.access[documentId] : null;
+        const permissions = documentAccess?.permissions || {};
+        const permission = Object.hasOwn(permissions, userId) ? permissions[userId] : null;
+        if (!permission || permission.status !== "Active" || permission.role !== "Editor") {
+            throw serviceError("No tienes permiso para realizar esta operación.", 403);
+        }
+        role = "Editor";
+    }
+    return { document, role };
+}
+
+function auditedPage(data, pageId, userId) {
+    const page = Object.hasOwn(data.pages || {}, pageId) ? data.pages[pageId] : null;
+    if (!page || page.deletedAt) return null;
+    const access = auditedPageAccess(data, page.documentId, userId);
+    return access ? { page, ...access } : null;
+}
+
+function validDrawingKey(id) {
+    if (typeof id !== "string" || !id || /[.#$/\[\]\u0000-\u001f\u007f]/.test(id)) {
+        throw serviceError("El identificador solicitado no es válido.");
+    }
+}
+
 async function createPage(documentId, payload, userId) {
+    if (isDrawingPageAuditEnabled()) {
+        validDrawingKey(documentId);
+        validDrawingKey(userId);
+        const pageId = randomUUID();
+        const snapshotId = randomUUID();
+        const now = new Date().toISOString();
+        return transactDrawingPage({ targetId: pageId, actorId: userId, action: "drawing.page.created",
+            change: (data) => {
+                const access = auditedPageAccess(data, documentId, userId);
+                if (!access) return null;
+                if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
+                    Object.keys(payload).some((key) => key !== "name")) {
+                    throw serviceError("Los datos de la página no son válidos.");
+                }
+                const name = normalizeName(payload.name, "El nombre de la página");
+                const document = access.document;
+                const count = Number(document.pageCount) || 0;
+                if (count >= 100) throw serviceError("La pizarra no puede tener más de 100 páginas.", 409);
+                if (Object.hasOwn(data.pages || {}, pageId) || Object.hasOwn(data.snapshots || {}, snapshotId)) {
+                    throw serviceError("La página ya existe.", 409);
+                }
+                const position = Number(document.nextPagePosition) || count;
+                const page = { documentId, name, position, createdAt: now, updatedAt: now,
+                    version: 0, schemaVersion: 1, snapshotId };
+                const content = initialSnapshot();
+                const contentHash = createHash("sha256").update(JSON.stringify(content)).digest("hex");
+                Object.assign(document, { pageCount: count + 1, nextPagePosition: position + 1,
+                    version: (Number(document.version) || 0) + 1, updatedAt: now });
+                data.pages = { ...(data.pages || {}), [pageId]: page };
+                data.pagesByDocument = { ...(data.pagesByDocument || {}), [documentId]: {
+                    ...(Object.hasOwn(data.pagesByDocument || {}, documentId) ? data.pagesByDocument[documentId] : {}), [pageId]: true
+                } };
+                data.pagesByUser = { ...(data.pagesByUser || {}), [userId]: {
+                    ...(Object.hasOwn(data.pagesByUser || {}, userId) ? data.pagesByUser[userId] : {}), [pageId]: true
+                } };
+                data.snapshots = { ...(data.snapshots || {}), [snapshotId]: {
+                    pageId, version: 0, schemaVersion: 1, snapshot: content, contentHash,
+                    createdAt: now, createdByUserId: userId
+                } };
+                data.versionsByPage = { ...(data.versionsByPage || {}), [pageId]: {
+                    0: { snapshotId, contentHash, createdAt: now, createdByUserId: userId }
+                } };
+                return { value: data, result: { id: pageId, ...page } };
+            } });
+    }
     const document = await getDocumentForUser(documentId, userId, "Editor");
     if (!document) return null;
     if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
@@ -548,6 +698,23 @@ async function duplicatePage(pageId, userId) {
 }
 
 async function updatePage(pageId, payload, userId) {
+    if (isDrawingPageAuditEnabled()) {
+        validDrawingKey(pageId);
+        validDrawingKey(userId);
+        const now = new Date().toISOString();
+        return transactDrawingPage({ targetId: pageId, actorId: userId, action: "drawing.page.updated",
+            change: (data) => {
+                const access = auditedPage(data, pageId, userId);
+                if (!access) return null;
+                if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
+                    Object.keys(payload).length !== 1 || !Object.hasOwn(payload, "name")) {
+                    throw serviceError("Los datos de la página no son válidos.");
+                }
+                Object.assign(access.page, { name: normalizeName(payload.name, "El nombre de la página"), updatedAt: now });
+                return { value: data, result: { id: pageId, ...access.page,
+                    document: { id: access.page.documentId, ...access.document, accessRole: access.role } } };
+            } });
+    }
     const page = await getPageForUser(pageId, userId, "Editor");
     if (!page) return null;
     if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
@@ -560,6 +727,26 @@ async function updatePage(pageId, payload, userId) {
 }
 
 async function deletePage(pageId, userId) {
+    if (isDrawingPageAuditEnabled()) {
+        validDrawingKey(pageId);
+        validDrawingKey(userId);
+        const now = new Date().toISOString();
+        return Boolean(await transactDrawingPage({ targetId: pageId, actorId: userId, action: "drawing.page.deleted",
+            change: (data) => {
+                const access = auditedPage(data, pageId, userId);
+                if (!access) return null;
+                if (Number(access.document.pageCount) <= 1) {
+                    throw serviceError("Una pizarra debe conservar al menos una página.", 409);
+                }
+                access.document.pageCount -= 1;
+                access.document.version = (Number(access.document.version) || 0) + 1;
+                access.document.updatedAt = now;
+                access.page.deletedAt = now;
+                if (Object.hasOwn(data.pagesByDocument || {}, access.page.documentId)) delete data.pagesByDocument[access.page.documentId][pageId];
+                if (Object.hasOwn(data.pagesByUser || {}, userId)) delete data.pagesByUser[userId][pageId];
+                return { value: data, result: true };
+            } }));
+    }
     const page = await getPageForUser(pageId, userId, "Editor");
     if (!page) return false;
     const documentRef = drawingRef(`documents/${page.documentId}`);
@@ -599,6 +786,25 @@ async function deletePage(pageId, userId) {
 }
 
 async function reorderPages(documentId, ids, userId) {
+    if (isDrawingPageAuditEnabled()) {
+        validDrawingKey(documentId);
+        validDrawingKey(userId);
+        return transactDrawingPage({ targetId: documentId, actorId: userId, action: "drawing.page.reordered",
+            change: (data) => {
+                if (!auditedPageAccess(data, documentId, userId)) return null;
+                const index = Object.hasOwn(data.pagesByDocument || {}, documentId) ? data.pagesByDocument[documentId] : {};
+                const pages = Object.keys(index).map((id) =>
+                    Object.hasOwn(data.pages || {}, id) ? { id, ...data.pages[id] } : null
+                ).filter((page) => page && !page.deletedAt).sort((a, b) => a.position - b.position);
+                if (!Array.isArray(ids) || ids.length !== pages.length || new Set(ids).size !== pages.length ||
+                    ids.some((id) => !pages.some((page) => page.id === id))) {
+                    throw serviceError("El orden de las páginas no es válido.");
+                }
+                if (!ids.length) return { unchanged: true, result: [] };
+                ids.forEach((id, position) => { data.pages[id].position = position; });
+                return { value: data, result: ids.map((id) => ({ id, ...data.pages[id] })) };
+            } });
+    }
     const document = await getDocumentForUser(documentId, userId, "Editor");
     if (!document) return null;
     const pages = await getPagesForDocument(documentId);

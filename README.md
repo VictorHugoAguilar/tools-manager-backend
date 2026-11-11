@@ -114,11 +114,13 @@ auditan hitos y cambios de acceso, no cada actualización WebSocket.
 | Tablero: columnas, orden y etiquetas | Auditoría experimental `AUDIT_TASK_BOARD_CATALOGS_ENABLED`: `task_board.column.created/updated/deleted/reordered` y `task_board.label.created/updated/deleted`. | Validar transacciones y concurrencia en Firebase. Lectura del tablero: agregados. |
 | Tablero: tareas y movimientos | Auditoría experimental `AUDIT_TASK_BOARD_TASKS_ENABLED`: `task_board.task.created/updated/deleted/moved`. | Validar transacciones y concurrencia en Firebase. |
 | Tablero: comentarios y adjuntos | Auditoría experimental `AUDIT_TASK_BOARD_TASKS_ENABLED`: `task_board.comment.created/updated/deleted` y `task_board.attachment.created/deleted`. | Validar la integración con Storage y diseñar la conciliación de archivos conservados; eventos sin texto, nombres ni URL. |
-| Lista de tareas: proyectos, orden, archivo y miembros | Sin auditoría durable específica. | Auditoría `todo.project.created/updated/deleted/archived/reordered` y `todo.member.added/removed`. Lecturas: agregados; búsquedas selectivas sin términos. |
-| Lista de tareas: secciones, tareas y subtareas | Sin auditoría durable específica. | Auditoría `todo.section.created/updated/deleted/reordered`, `todo.item.created/updated/deleted/completed/reopened/archived/importance.updated/priority.updated/moved/reordered/duplicated` y `todo.child.created/updated/deleted`. Los alias de proyectos deben producir el mismo evento. |
+| Lista de tareas: proyectos, orden, archivo y miembros | Auditoría experimental `AUDIT_TODO_PROJECTS_ENABLED`: `todo.project.created/updated/deleted/archived/restored/reordered` y `todo.member.added/removed`. | Validar en Firebase y completar la auditoría de las operaciones relacionadas antes de habilitar. Lecturas: agregados. |
+| Lista de tareas: secciones | Auditoría experimental `AUDIT_TODO_SECTIONS_ENABLED`: `todo.section.created/updated/deleted/reordered`. | Validar en Firebase y completar las operaciones relacionadas antes de habilitar. La eliminación de un proyecto audita el proyecto, no cada sección eliminada en cascada. |
+| Lista de tareas: tareas y subtareas | Sin auditoría durable específica. | Auditoría propuesta `todo.item.created/updated/deleted/completed/reopened/archived/importance.updated/priority.updated/moved/reordered/duplicated` y `todo.child.created/updated/deleted`. |
 | Lista de tareas: etiquetas, comentarios, adjuntos y recordatorios | Sin auditoría durable específica. | Auditoría `todo.label.created/updated/deleted`, `todo.comment.created/updated/deleted`, `todo.attachment.created/deleted` y `todo.reminder.created/updated/deleted`. No guardar contenido, texto, nombres ni URL. |
 | Lista de tareas: recurrencia, envío de recordatorios y notificaciones | Sin auditoría durable específica; existen procesos automáticos. | Diseñar eventos idempotentes `todo.recurrence.created` y `todo.reminder.delivered` para cambios de negocio confirmados por el sistema; separar fallos de entrega como telemetría `todo.reminder.delivery.failed`. Lectura de notificaciones y marca de leída: agregados, sin auditoría durable. El actor automático debe ser una identidad de sistema explícita, no un usuario inventado. |
-| Dibujar: documentos y páginas | Sin auditoría durable específica. | Auditoría `drawing.document.created/updated/deleted/duplicated/archived/restored`, `drawing.page.created/updated/deleted/duplicated/reordered` y `drawing.version.restored`. Las consultas usan agregados y los accesos sensibles seleccionados telemetría. |
+| Dibujar: documentos | Auditoría experimental `AUDIT_DRAWING_DOCUMENTS_ENABLED`: `drawing.document.created/updated/deleted/archived/restored`. | Falta auditar la duplicación y validar concurrencia con páginas y colaboración. |
+| Dibujar: páginas y restauración | Auditoría experimental `AUDIT_DRAWING_PAGES_ENABLED`: `drawing.page.created/updated/deleted/reordered`. | Faltan la duplicación de páginas y la restauración de versiones. Validar las operaciones y concurrencia con colaboración. |
 | Dibujar: snapshots, versiones, preferencias y recursos | Sin auditoría durable específica. | Auditar hitos de versión y carga/eliminación de recursos con `drawing.version.created` y `drawing.asset.created/deleted`, sin contenido ni URL. No auditar cada actualización colaborativa ni cada guardado automático como cambio individual; medir actividad agregada. Preferencias personales: agregados. Distinguir restauración explícita de guardados automáticos. |
 | Dibujar: invitaciones, permisos y enlaces | Sin auditoría durable específica. | Auditoría `drawing.invitation.created/accepted/declined/cancelled`, `drawing.permission.updated/revoked` y `drawing.share_link.created/revoked`; identificar recurso y actor, sin tokens ni enlaces. Consultas y resolución de enlaces: telemetría selectiva sin secretos. |
 | WebSocket de colaboración | Eventos experimentales de apertura, cierre, fallo de autenticación y carga/escritura; agregados de aperturas, cierres y actualizaciones. | Conservar los eventos existentes, añadir solo medidas fiables pendientes y probar correlación sin guardar mensajes, contenido o tokens. |
@@ -238,6 +240,45 @@ el resultado de una transacción fallida puede ser ambiguo. Esto puede dejar
 archivos huérfanos y consumo de Storage; no eliminarlos sin verificar referencias
 y concurrencia.
 
+`AUDIT_TODO_PROJECTS_ENABLED=true` habilita experimentalmente la auditoría de
+creación, edición, archivo, restauración, eliminación y orden de proyectos,
+así como de altas y bajas de miembros. Los eventos de miembros incluyen el ID
+del proyecto y el del miembro, sin datos de perfil. El acceso del propietario,
+las referencias y el evento se comprueban o escriben en la transacción. Los
+alias de proyectos utilizan las mismas funciones. Las tareas, comentarios,
+archivos, recordatorios y procesos automáticos aún no están auditados; sus
+escrituras también pueden competir con estas transacciones. Las secciones
+disponen de la bandera independiente descrita a continuación.
+
+`AUDIT_TODO_SECTIONS_ENABLED=true` habilita experimentalmente la auditoría de
+alta, edición, eliminación y ordenación de secciones. El acceso de propietario o
+editor y las tareas existentes se comprueban dentro de la transacción; los
+eventos solo contienen identificadores y acción, no nombres ni contenido.
+Requiere `AUDIT_TODO_PROJECTS_ENABLED=true`: el backend rechaza el arranque si
+se habilita sin la auditoría de proyectos. Al eliminar un proyecto, sus
+secciones se eliminan junto con el evento del proyecto, sin eventos individuales.
+La creación y movimiento de tareas aún no se han adaptado a estas transacciones:
+no activar hasta completar esa integración y validar concurrencia real.
+
+`AUDIT_DRAWING_DOCUMENTS_ENABLED=true` habilita experimentalmente la auditoría
+de alta, edición, archivo, restauración y eliminación de documentos de dibujo.
+El documento, sus índices iniciales y el evento de alta se confirman juntos;
+el propietario se verifica en la transacción para el resto de operaciones. Los
+eventos no contienen nombres, contenido ni enlaces. La duplicación de documentos,
+versiones, recursos, invitaciones y permisos aún no están auditados; las páginas
+se controlan con la bandera independiente descrita a continuación.
+
+`AUDIT_DRAWING_PAGES_ENABLED=true` habilita experimentalmente la auditoría de
+alta, edición, eliminación y ordenación de páginas. El permiso de propietario o
+editor, el límite de páginas y las referencias se verifican en la transacción
+junto con el cambio y el evento. Los eventos no contienen nombres ni contenido;
+la duplicación de páginas y la restauración de versiones aún no están auditadas.
+
+No habilitar estas banderas hasta completar y validar las operaciones
+relacionadas, el aislamiento de entornos y las transacciones en Firebase. Todos
+los publicadores deben actualizarse antes de activar la auditoría de proyectos:
+las versiones antiguas no aceptan el campo `projectId` de eventos de miembros.
+
 La auditoría experimental de cambios de permisos por rol se activa por separado
 con `AUDIT_ROLES_ENABLED=true` (por defecto `false`). La modificación de
 `authRoles` y su evento se escriben en la misma transacción; el evento registra
@@ -277,9 +318,9 @@ Realtime Database. El identificador de actor es el de la cuenta recuperada y
 representa el uso de un enlace válido, no una sesión autenticada. No se
 almacenan en la auditoría ni el token, ni su hash, ni la contraseña.
 
-El publicador se ejecuta cuando cualquiera de las doce banderas está activa y
+El publicador se ejecuta cuando cualquiera de las dieciséis banderas está activa y
 procesa toda la outbox, con independencia del tipo de evento. Al desactivar
-las doce banderas se detiene el publicador; las entradas pendientes permanecen en
+las dieciséis banderas se detiene el publicador; las entradas pendientes permanecen en
 Realtime Database y se reanudan al volver a habilitar al menos una bandera.
 El panel consulta `GET /api/monitoring/audit-status`, protegido por
 `monitoring:app` y auditado antes de leer la outbox. Muestra el número de
