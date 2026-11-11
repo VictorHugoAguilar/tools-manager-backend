@@ -1,7 +1,10 @@
 const { randomUUID } = require("node:crypto");
 const { getAdminDatabase } = require("../config/firebaseAdmin");
 const { deleteTaskAttachment, uploadTaskAttachment } = require("./taskBoardAttachmentService");
-const { isTaskBoardCatalogAuditEnabled, transactTaskBoardCatalog } = require("../audit/businessOutbox");
+const {
+    isTaskBoardCatalogAuditEnabled, isTaskBoardTaskAuditEnabled,
+    transactTaskBoardCatalog, transactTaskBoardTask
+} = require("../audit/businessOutbox");
 
 const INITIAL_COLUMNS = [
     { id: "todo", name: "Por hacer", color: "blue", position: 0 },
@@ -136,7 +139,7 @@ function initializeBoard(board) {
 }
 
 async function ensureInitialized() {
-    if (isTaskBoardCatalogAuditEnabled()) {
+    if (isTaskBoardCatalogAuditEnabled() || isTaskBoardTaskAuditEnabled()) {
         if ((await boardRef("_meta/initialized").get()).exists()) return;
         const transaction = await boardRef().transaction((current) => initializeBoard(current || {}), undefined, false);
         if (!transaction.committed) throw serviceError("No se pudo inicializar el tablero.", 503);
@@ -231,6 +234,46 @@ async function assertAssigneeExists(assigneeId) {
     if (!member.exists() || member.val()?.isActive === false) {
         throw serviceError("El responsable seleccionado no está disponible.", 400);
     }
+}
+
+function validateTaskReferences(board, root, changes) {
+    if (changes.columnId && !Object.hasOwn(board.columns || {}, changes.columnId)) {
+        throw serviceError("La lista seleccionada no existe.", 404);
+    }
+    if (changes.labelIds && changes.labelIds.some((id) => !Object.hasOwn(board.labels || {}, id))) {
+        throw serviceError("Una o más etiquetas ya no existen.", 409);
+    }
+    if (changes.assigneeId) {
+        const users = root.authUsers || {};
+        if (!Object.hasOwn(users, changes.assigneeId) || users[changes.assigneeId]?.isActive === false) {
+            throw serviceError("El responsable seleccionado no está disponible.", 400);
+        }
+    }
+}
+
+function taskHistory(actor, text, now) {
+    return {
+        text, actorId: actor.id, actorName: `${actor.firstName} ${actor.lastName}`.trim(), createdAt: now
+    };
+}
+
+function tasksInColumn(tasks, columnId, excludedId) {
+    return Object.entries(tasks).filter(([id, task]) => id !== excludedId && task?.columnId === columnId)
+        .sort((left, right) => Number(left[1].position || 0) - Number(right[1].position || 0));
+}
+
+function retainTaskAttachment(root, taskId, attachmentId, attachment, now) {
+    if (typeof attachment?.path !== "string" || !attachment.path) {
+        throw serviceError("El archivo adjunto no tiene una ruta válida para su conservación.", 409);
+    }
+    root.retainedTaskBoardAttachments = root.retainedTaskBoardAttachments || {};
+    if (Object.hasOwn(root.retainedTaskBoardAttachments, attachmentId)) {
+        throw serviceError("El archivo adjunto ya está pendiente de conciliación.", 409);
+    }
+    root.retainedTaskBoardAttachments = {
+        ...root.retainedTaskBoardAttachments,
+        [attachmentId]: { taskId, path: attachment.path, retainedAt: now }
+    };
 }
 
 async function createColumn(payload, actor) {
@@ -339,6 +382,24 @@ async function deleteColumn(id, actor) {
 
 async function createTask(payload, actor) {
     const task = validateTaskPayload(payload);
+    if (isTaskBoardTaskAuditEnabled()) {
+        const id = randomUUID();
+        const historyId = randomUUID();
+        const now = new Date().toISOString();
+        return transactTaskBoardTask({ targetId: id, actorId: actor?.id, action: "task_board.task.created",
+            change: (board, root) => {
+                validateTaskReferences(board, root, task);
+                const tasks = board.tasks || {};
+                if (Object.hasOwn(tasks, id)) throw serviceError("La tarea ya existe.", 409);
+                const data = {
+                    ...task, position: Object.values(tasks).filter((value) => value?.columnId === task.columnId).length,
+                    createdAt: now, updatedAt: now, comments: {}, attachments: {},
+                    history: { [historyId]: taskHistory(actor, `Tarea creada por ${actor.firstName} ${actor.lastName}`.trim(), now) }
+                };
+                board.tasks = { ...tasks, [id]: data };
+                return { value: board, result: normalizeTask(id, data) };
+            } });
+    }
     await Promise.all([
         assertColumnExists(task.columnId),
         assertLabelsExist(task.labelIds),
@@ -370,6 +431,35 @@ async function createTask(payload, actor) {
 }
 
 async function updateTask(id, payload, actor) {
+    if (isTaskBoardTaskAuditEnabled()) {
+        const now = new Date().toISOString();
+        const historyId = randomUUID();
+        return transactTaskBoardTask({ targetId: id, actorId: actor?.id, action: "task_board.task.updated",
+            change: (board, root) => {
+                const tasks = board.tasks || {};
+                if (!Object.hasOwn(tasks, id)) return null;
+                const existing = normalizeTask(id, tasks[id]);
+                const changes = validateTaskPayload(payload, { partial: true });
+                validateTaskReferences(board, root, changes);
+                const updated = { ...tasks[id], ...changes, updatedAt: now };
+                const diffs = Object.entries(changes)
+                    .filter(([key, value]) => JSON.stringify(existing[key]) !== JSON.stringify(value))
+                    .map(([key]) => key);
+                if (diffs.length) updated.history = {
+                    ...(updated.history || {}),
+                    [historyId]: taskHistory(actor, `${actor.firstName} ${actor.lastName} actualizó ${diffs.join(", ")}`.trim(), now)
+                };
+                if (changes.columnId && changes.columnId !== existing.columnId) {
+                    const source = tasksInColumn(tasks, existing.columnId, id);
+                    const target = tasksInColumn(tasks, changes.columnId, id);
+                    target.push([id, updated]);
+                    source.forEach(([, value], position) => { value.position = position; });
+                    target.forEach(([, value], position) => { value.position = position; });
+                }
+                tasks[id] = updated;
+                return { value: board, result: normalizeTask(id, updated) };
+            } });
+    }
     const ref = boardRef(`tasks/${id}`);
     const snapshot = await ref.get();
     if (!snapshot.exists()) return null;
@@ -429,6 +519,30 @@ async function updateTask(id, payload, actor) {
 }
 
 async function moveTask(id, columnId, position, actor) {
+    if (isTaskBoardTaskAuditEnabled()) {
+        const now = new Date().toISOString();
+        const historyId = randomUUID();
+        return transactTaskBoardTask({ targetId: id, actorId: actor?.id, action: "task_board.task.moved",
+            change: (board, root) => {
+                const tasks = board.tasks || {};
+                if (!Object.hasOwn(tasks, id)) return null;
+                validateTaskReferences(board, root, { columnId });
+                if (!columnId || typeof columnId !== "string" || !Object.hasOwn(board.columns || {}, columnId)) {
+                    throw serviceError("La lista seleccionada no existe.", 404);
+                }
+                if (!Number.isInteger(position) || position < 0) throw serviceError("La posición de la tarea no es válida.");
+                const task = tasks[id];
+                const source = tasksInColumn(tasks, task.columnId, id);
+                const target = task.columnId === columnId ? source : tasksInColumn(tasks, columnId, id);
+                target.splice(Math.min(position, target.length), 0, [id, task]);
+                if (task.columnId !== columnId) source.forEach(([, value], index) => { value.position = index; });
+                target.forEach(([, value], index) => { value.columnId = columnId; value.position = index; });
+                task.updatedAt = now;
+                task.history = { ...(task.history || {}),
+                    [historyId]: taskHistory(actor, `${actor.firstName} ${actor.lastName} movió la tarea a otra lista`.trim(), now) };
+                return { value: board, result: normalizeTask(id, task) };
+            } });
+    }
     const task = await getTask(id);
     if (!task) return null;
     await assertColumnExists(columnId);
@@ -466,7 +580,21 @@ async function moveTask(id, columnId, position, actor) {
     return getTask(id);
 }
 
-async function deleteTask(id) {
+async function deleteTask(id, actor) {
+    if (isTaskBoardTaskAuditEnabled()) {
+        const now = new Date().toISOString();
+        return Boolean(await transactTaskBoardTask({
+            targetId: id, actorId: actor?.id, action: "task_board.task.deleted",
+            change: (board, root) => {
+                if (!Object.hasOwn(board.tasks || {}, id)) return null;
+                for (const [attachmentId, attachment] of Object.entries(board.tasks[id].attachments || {})) {
+                    retainTaskAttachment(root, id, attachmentId, attachment, now);
+                }
+                delete board.tasks[id];
+                return { value: board, result: true };
+            }
+        }));
+    }
     const task = await getTask(id);
     if (!task) return false;
     await Promise.all(task.attachments.map((attachment) => deleteTaskAttachment(attachment.path)));
@@ -560,6 +688,26 @@ async function deleteLabel(id, actor) {
 }
 
 async function addComment(taskId, text, actor) {
+    if (isTaskBoardTaskAuditEnabled()) {
+        if (typeof taskId !== "string" || !/^[A-Za-z0-9_-]+$/.test(taskId)) {
+            throw serviceError("El identificador del comentario no es válido.");
+        }
+        const commentId = boardRef(`tasks/${taskId}/comments`).push().key;
+        const historyId = randomUUID();
+        const now = new Date().toISOString();
+        return transactTaskBoardTask({ targetId: commentId, actorId: actor?.id, action: "task_board.comment.created",
+            change: (board) => {
+                if (!Object.hasOwn(board.tasks || {}, taskId)) return null;
+                const task = board.tasks[taskId];
+                const comment = { text: normalizeName(text, "El comentario"), authorId: actor.id,
+                    authorName: `${actor.firstName} ${actor.lastName}`.trim(), createdAt: now };
+                task.comments = { ...(task.comments || {}), [commentId]: comment };
+                task.updatedAt = now;
+                task.history = { ...(task.history || {}),
+                    [historyId]: taskHistory(actor, `${actor.firstName} ${actor.lastName} añadió un comentario`.trim(), now) };
+                return { value: board, result: { id: commentId, ...comment } };
+            } });
+    }
     const ref = boardRef(`tasks/${taskId}`);
     if (!(await ref.get()).exists()) return null;
     const comment = {
@@ -586,6 +734,24 @@ async function addComment(taskId, text, actor) {
 async function updateComment(taskId, commentId, text, actor) {
     if (![taskId, commentId].every((id) => typeof id === "string" && /^[A-Za-z0-9_-]+$/.test(id))) {
         throw serviceError("El identificador del comentario no es válido.");
+    }
+    if (isTaskBoardTaskAuditEnabled()) {
+        const updatedAt = new Date().toISOString();
+        const historyId = randomUUID();
+        return transactTaskBoardTask({ targetId: commentId, actorId: actor?.id, action: "task_board.comment.updated",
+            change: (board) => {
+                if (!Object.hasOwn(board.tasks || {}, taskId)) return null;
+                const task = board.tasks[taskId];
+                if (!Object.hasOwn(task.comments || {}, commentId)) throw serviceError("El comentario no existe.", 404);
+                const comment = task.comments[commentId];
+                if (comment.authorId !== actor.id) throw serviceError("Solo el autor puede editar este comentario.", 403);
+                const updated = { ...comment, text: normalizeName(text, "El comentario"), updatedAt };
+                task.comments[commentId] = updated;
+                task.updatedAt = updatedAt;
+                task.history = { ...(task.history || {}),
+                    [historyId]: taskHistory(actor, `${actor.firstName} ${actor.lastName} modificó un comentario`.trim(), updatedAt) };
+                return { value: board, result: { id: commentId, ...updated } };
+            } });
     }
     const taskRef = boardRef(`tasks/${taskId}`);
     const taskSnapshot = await taskRef.get();
@@ -615,6 +781,26 @@ async function removeComment(taskId, commentId, actor) {
     if (![taskId, commentId].every((id) => typeof id === "string" && /^[A-Za-z0-9_-]+$/.test(id))) {
         throw serviceError("El identificador del comentario no es válido.");
     }
+    if (isTaskBoardTaskAuditEnabled()) {
+        const deletedAt = new Date().toISOString();
+        const historyId = randomUUID();
+        return Boolean(await transactTaskBoardTask({
+            targetId: commentId, actorId: actor?.id, action: "task_board.comment.deleted",
+            change: (board) => {
+                if (!Object.hasOwn(board.tasks || {}, taskId)) return null;
+                const task = board.tasks[taskId];
+                if (!Object.hasOwn(task.comments || {}, commentId)) return null;
+                if (task.comments[commentId].authorId !== actor.id && !actor.permissions?.includes("users:manage")) {
+                    throw serviceError("No tienes permiso para eliminar este comentario.", 403);
+                }
+                delete task.comments[commentId];
+                task.updatedAt = deletedAt;
+                task.history = { ...(task.history || {}),
+                    [historyId]: taskHistory(actor, `${actor.firstName} ${actor.lastName} eliminó un comentario`.trim(), deletedAt) };
+                return { value: board, result: true };
+            }
+        }));
+    }
     const taskRef = boardRef(`tasks/${taskId}`);
     const taskSnapshot = await taskRef.get();
     if (!taskSnapshot.exists()) return false;
@@ -639,9 +825,35 @@ async function removeComment(taskId, commentId, actor) {
 }
 
 async function addAttachment(taskId, file, actor) {
+    if (isTaskBoardTaskAuditEnabled() && (typeof taskId !== "string" || !/^[A-Za-z0-9_-]+$/.test(taskId))) {
+        throw serviceError("El identificador de la tarea no es válido.");
+    }
+    if (isTaskBoardTaskAuditEnabled() && (typeof actor?.id !== "string" || !actor.id)) {
+        throw serviceError("La identidad del actor no es válida.", 401);
+    }
     const taskRef = boardRef(`tasks/${taskId}`);
     if (!(await taskRef.get()).exists()) return null;
     const attachment = await uploadTaskAttachment(taskId, file, actor);
+    if (isTaskBoardTaskAuditEnabled()) {
+        try {
+            const result = await transactTaskBoardTask({
+                targetId: attachment.id, actorId: actor?.id, action: "task_board.attachment.created",
+                change: (board) => {
+                    if (!Object.hasOwn(board.tasks || {}, taskId)) return null;
+                    const task = board.tasks[taskId];
+                    task.attachments = task.attachments || {};
+                    if (Object.hasOwn(task.attachments, attachment.id)) throw serviceError("El archivo adjunto ya existe.", 409);
+                    task.attachments[attachment.id] = attachment;
+                    return { value: board, result: attachment };
+                }
+            });
+            if (!result) console.warn("Archivo de tablero conservado tras desaparecer la tarea:", attachment.id);
+            return result;
+        } catch (error) {
+            console.error("No se pudo confirmar el adjunto auditado; el archivo se conserva para revisión:", attachment.id, error);
+            throw error;
+        }
+    }
     try {
         const attachmentRef = taskRef.child("attachments").child(attachment.id);
         await attachmentRef.set(attachment);
@@ -652,7 +864,21 @@ async function addAttachment(taskId, file, actor) {
     }
 }
 
-async function removeAttachment(taskId, attachmentId) {
+async function removeAttachment(taskId, attachmentId, actor) {
+    if (isTaskBoardTaskAuditEnabled()) {
+        const now = new Date().toISOString();
+        return Boolean(await transactTaskBoardTask({
+            targetId: attachmentId, actorId: actor?.id, action: "task_board.attachment.deleted",
+            change: (board, root) => {
+                if (!Object.hasOwn(board.tasks || {}, taskId)) return null;
+                const task = board.tasks[taskId];
+                if (!Object.hasOwn(task.attachments || {}, attachmentId)) return null;
+                retainTaskAttachment(root, taskId, attachmentId, task.attachments[attachmentId], now);
+                delete task.attachments[attachmentId];
+                return { value: board, result: true };
+            }
+        }));
+    }
     const ref = boardRef(`tasks/${taskId}/attachments/${attachmentId}`);
     const snapshot = await ref.get();
     if (!snapshot.exists()) return false;

@@ -43,7 +43,7 @@ const taskBoardController = {
         return task ? res.json(task) : res.status(404).json({ message: "Tarea no encontrada." });
     }),
     deleteTask: respond(async (req, res) => {
-        const deleted = await board.deleteTask(req.params.id);
+        const deleted = await board.deleteTask(req.params.id, req.authUser);
         return deleted ? res.status(204).send() : res.status(404).json({ message: "Tarea no encontrada." });
     }),
 
@@ -81,7 +81,7 @@ const taskBoardController = {
             : res.status(404).json({ message: "Tarea no encontrada." });
     }),
     removeAttachment: respond(async (req, res) => {
-        const deleted = await board.removeAttachment(req.params.id, req.params.attachmentId);
+        const deleted = await board.removeAttachment(req.params.id, req.params.attachmentId, req.authUser);
         return deleted
             ? res.status(204).send()
             : res.status(404).json({ message: "Archivo adjunto no encontrado." });

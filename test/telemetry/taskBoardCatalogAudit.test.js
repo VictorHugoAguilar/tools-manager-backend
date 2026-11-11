@@ -2,13 +2,14 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { loadModuleWithMocks } = require("../helpers/loadModuleWithMocks");
-const { transactTaskBoardCatalog } = require("../../src/audit/businessOutbox");
+const { transactTaskBoardCatalog, transactTaskBoardTask, isTaskBoardTaskAuditEnabled } = require("../../src/audit/businessOutbox");
 const { AuditOutboxWorker } = require("../../src/audit/outboxWorker");
 
-function harness(initial = {}) {
+function harness(initial = {}, taskAuditEnabled = false) {
     let root = structuredClone(initial);
     let retry;
     let failure = false;
+    const deletedFiles = [];
     const database = {
         ref(pathname) {
             if (!pathname) return { async transaction(change) {
@@ -27,6 +28,7 @@ function harness(initial = {}) {
                 function boardReference(childPath = "") {
                     return {
                         child(child) { return boardReference([childPath, child].filter(Boolean).join("/")); },
+                        push() { return { key: require("node:crypto").randomUUID() }; },
                         async get() {
                             const value = childPath.split("/").filter(Boolean).reduce(
                                 (node, key) => node?.[key], root.taskBoard
@@ -67,19 +69,46 @@ function harness(initial = {}) {
     };
     const board = loadModuleWithMocks(path.resolve(__dirname, "../../src/services/taskBoardService.js"), {
         "../config/firebaseAdmin": { getAdminDatabase: () => database },
+        "./taskBoardAttachmentService": {
+            uploadTaskAttachment: async (_taskId, file) => ({
+                id: file.id, path: file.path, name: "private file", url: "private url"
+            }),
+            deleteTaskAttachment: async (path) => { deletedFiles.push(path); }
+        },
         "../audit/businessOutbox": {
             isTaskBoardCatalogAuditEnabled: () => true,
-            transactTaskBoardCatalog: (options) => transactTaskBoardCatalog({ ...options, database })
+            isTaskBoardTaskAuditEnabled: () => taskAuditEnabled,
+            transactTaskBoardCatalog: (options) => transactTaskBoardCatalog({ ...options, database }),
+            transactTaskBoardTask: (options) => transactTaskBoardTask({ ...options, database })
         }
     });
     return {
-        board, database, get root() { return root; },
+        board, database, deletedFiles, get root() { return root; },
         retry(callback) { retry = callback; },
         fail() { failure = true; }
     };
 }
 
 const actor = { id: "actor", firstName: "Private", lastName: "Name" };
+
+test("task board audit requires catalog audit and defaults to disabled", () => {
+    const task = process.env.AUDIT_TASK_BOARD_TASKS_ENABLED;
+    const catalog = process.env.AUDIT_TASK_BOARD_CATALOGS_ENABLED;
+    try {
+        delete process.env.AUDIT_TASK_BOARD_TASKS_ENABLED;
+        delete process.env.AUDIT_TASK_BOARD_CATALOGS_ENABLED;
+        assert.equal(isTaskBoardTaskAuditEnabled(), false);
+        process.env.AUDIT_TASK_BOARD_TASKS_ENABLED = "true";
+        assert.throws(() => isTaskBoardTaskAuditEnabled(), /requiere AUDIT_TASK_BOARD_CATALOGS_ENABLED/);
+        process.env.AUDIT_TASK_BOARD_CATALOGS_ENABLED = "true";
+        assert.equal(isTaskBoardTaskAuditEnabled(), true);
+    } finally {
+        if (task === undefined) delete process.env.AUDIT_TASK_BOARD_TASKS_ENABLED;
+        else process.env.AUDIT_TASK_BOARD_TASKS_ENABLED = task;
+        if (catalog === undefined) delete process.env.AUDIT_TASK_BOARD_CATALOGS_ENABLED;
+        else process.env.AUDIT_TASK_BOARD_CATALOGS_ENABLED = catalog;
+    }
+});
 
 test("board catalog mutations commit sanitized events and publish them", async () => {
     const h = harness({ unrelated: { kept: true } });
@@ -184,4 +213,112 @@ test("controllers pass authenticated actor to every audited catalog operation", 
     for (const name of Object.keys(service)) await taskBoardController[name](req, res, (error) => { throw error; });
     assert.equal(calls.length, 7);
     assert.ok(calls.every((call) => call.at(-1) === actor));
+});
+
+test("board tasks and comments are audited atomically without their content", async () => {
+    const h = harness({ taskBoard: {
+        columns: { one: { position: 0 }, two: { position: 1 } }, labels: { label: { name: "x" } }
+    }, authUsers: { member: { isActive: true } } }, true);
+    const payload = { title: "secret title", description: "private description", columnId: "one",
+        priority: "medium", labelIds: ["label"], dueDate: "", assigneeId: "member" };
+    const first = await h.board.createTask(payload, actor);
+    const second = await h.board.createTask({ ...payload, title: "second" }, actor);
+    const updated = await h.board.updateTask(first.id, { columnId: "two", title: "new secret" }, actor);
+    assert.equal(updated.position, 0);
+    assert.equal(h.root.taskBoard.tasks[second.id].position, 0);
+    assert.equal((await h.board.moveTask(second.id, "two", 0, actor)).position, 0);
+    assert.equal(h.root.taskBoard.tasks[first.id].position, 1);
+    const comment = await h.board.addComment(first.id, "private comment", actor);
+    assert.equal((await h.board.updateComment(first.id, comment.id, "modified secret", actor)).text, "modified secret");
+    assert.equal(await h.board.removeComment(first.id, comment.id, actor), true);
+    assert.equal(await h.board.deleteTask(first.id, actor), true);
+    const events = Object.values(h.root.auditOutbox);
+    assert.deepEqual(events.map((event) => event.action), [
+        "task_board.task.created", "task_board.task.created", "task_board.task.updated",
+        "task_board.task.moved", "task_board.comment.created", "task_board.comment.updated",
+        "task_board.comment.deleted", "task_board.task.deleted"
+    ]);
+    assert.ok(events.every((event) => event.actorId === actor.id));
+    assert.doesNotMatch(JSON.stringify(events), /secret|private|description/i);
+    const published = [];
+    const worker = new AuditOutboxWorker({
+        getRealtimeDatabase: () => h.database,
+        getFirestoreDatabase: () => ({ collection: () => ({ doc: () => ({ create: async (event) => published.push(event) }) }) })
+    });
+    await worker.flush();
+    assert.equal(published.length, 8);
+});
+
+test("task and comment retries recheck references and authorization", async () => {
+    const h = harness({ taskBoard: {
+        columns: { one: { position: 0 } },
+        tasks: { task: { columnId: "one", comments: { comment: { authorId: "actor", text: "text" } } } }
+    } }, true);
+    h.retry((root) => { root.taskBoard.tasks.task.comments.comment.authorId = "other"; });
+    await assert.rejects(h.board.updateComment("task", "comment", "new", actor), { statusCode: 403 });
+    h.retry((root) => { delete root.taskBoard.columns.one; });
+    await assert.rejects(h.board.moveTask("task", "one", 0, actor), { statusCode: 404 });
+    assert.equal(h.root.auditOutbox, undefined);
+    h.fail();
+    await assert.rejects(h.board.removeComment("task", "comment", actor), /database unavailable/);
+    assert.equal(h.root.auditOutbox, undefined);
+});
+
+test("attachment references and retained files are recorded atomically without deleting storage objects", async () => {
+    const h = harness({ taskBoard: { tasks: { task: { attachments: {} } } } }, true);
+    const attachment = await h.board.addAttachment("task", { id: "attachment", path: "private/path" }, actor);
+    assert.equal(attachment.id, "attachment");
+    assert.equal(await h.board.removeAttachment("task", "attachment", actor), true);
+    assert.equal(h.root.taskBoard.tasks.task.attachments.attachment, undefined);
+    assert.equal(h.root.retainedTaskBoardAttachments.attachment.path, "private/path");
+    assert.deepEqual(h.deletedFiles, []);
+    assert.doesNotMatch(JSON.stringify(h.root.auditOutbox), /private/);
+    assert.deepEqual(Object.values(h.root.auditOutbox).map((event) => event.action), [
+        "task_board.attachment.created", "task_board.attachment.deleted"
+    ]);
+    h.root.taskBoard.tasks.task.attachments = { next: { path: "another/path" } };
+    assert.equal(await h.board.deleteTask("task", actor), true);
+    assert.equal(h.root.retainedTaskBoardAttachments.next.path, "another/path");
+    assert.deepEqual(h.deletedFiles, []);
+    const published = [];
+    const worker = new AuditOutboxWorker({
+        getRealtimeDatabase: () => h.database,
+        getFirestoreDatabase: () => ({ collection: () => ({ doc: () => ({ create: async (event) => published.push(event) }) }) })
+    });
+    await worker.flush();
+    assert.equal(published.length, 3);
+    assert.equal(Object.keys(h.root.auditOutbox).length, 0);
+});
+
+test("attachment removal retries use the latest reference and reject missing paths", async () => {
+    const h = harness({ taskBoard: {
+        tasks: { task: { attachments: { attachment: { path: "old/path" } } } }
+    } }, true);
+    h.retry((root) => { root.taskBoard.tasks.task.attachments.attachment.path = "new/path"; });
+    assert.equal(await h.board.removeAttachment("task", "attachment", actor), true);
+    assert.equal(h.root.retainedTaskBoardAttachments.attachment.path, "new/path");
+    h.root.taskBoard.tasks.task.attachments = { bad: {} };
+    const count = Object.keys(h.root.auditOutbox).length;
+    await assert.rejects(h.board.removeAttachment("task", "bad", actor), { statusCode: 409 });
+    assert.ok(h.root.taskBoard.tasks.task.attachments.bad);
+    assert.equal(Object.keys(h.root.auditOutbox).length, count);
+    assert.deepEqual(h.deletedFiles, []);
+});
+
+test("failed audited upload confirmation retains the file without emitting an event", async () => {
+    const h = harness({ taskBoard: { tasks: { task: {} } } }, true);
+    h.fail();
+    const originalError = console.error;
+    const logged = [];
+    console.error = (...args) => { logged.push(args); };
+    try {
+        await assert.rejects(h.board.addAttachment("task", { id: "attachment", path: "private/path" }, actor),
+            /database unavailable/);
+    } finally {
+        console.error = originalError;
+    }
+    assert.equal(logged.length, 1);
+    assert.deepEqual(h.deletedFiles, []);
+    assert.equal(h.root.taskBoard.tasks.task.attachments, undefined);
+    assert.equal(h.root.auditOutbox, undefined);
 });

@@ -50,6 +50,14 @@ function isTaskBoardCatalogAuditEnabled() {
     return process.env.AUDIT_TASK_BOARD_CATALOGS_ENABLED === "true";
 }
 
+function isTaskBoardTaskAuditEnabled() {
+    const enabled = process.env.AUDIT_TASK_BOARD_TASKS_ENABLED === "true";
+    if (enabled && !isTaskBoardCatalogAuditEnabled()) {
+        throw new Error("AUDIT_TASK_BOARD_TASKS_ENABLED requiere AUDIT_TASK_BOARD_CATALOGS_ENABLED.");
+    }
+    return enabled;
+}
+
 async function transactEntity({ id, actorId, action, change, database, collection, allowEmptyRoot, collectionPath, targetId = id, auditScope }) {
     if (typeof id !== "string" || !id || /[.#$/\[\]\u0000-\u001f\u007f]/.test(id) ||
         typeof targetId !== "string" || !targetId || /[.#$/\[\]\u0000-\u001f\u007f]/.test(targetId) ||
@@ -177,6 +185,19 @@ function transactTaskBoardCatalog({ targetId, actorId, action, change, database 
     });
 }
 
+function transactTaskBoardTask({ targetId, actorId, action, change, database = getAdminDatabase() }) {
+    const actions = [
+        "task_board.task.created", "task_board.task.updated", "task_board.task.moved",
+        "task_board.task.deleted", "task_board.comment.created", "task_board.comment.updated",
+        "task_board.comment.deleted", "task_board.attachment.created", "task_board.attachment.deleted"
+    ];
+    if (!actions.includes(action)) throw new Error("Acción de auditoría de tarea del tablero no válida.");
+    return transactEntity({
+        id: "taskBoard", targetId, actorId, action, database, collectionPath: [],
+        allowEmptyRoot: false, change: (board, _entities, root) => change(board || {}, root)
+    });
+}
+
 function transactRolePermissions({ id, actorId, change, database = getAdminDatabase() }) {
     return transactEntity({
         id, actorId, change, database, collection: "authRoles", allowEmptyRoot: false,
@@ -196,7 +217,7 @@ function transactAdminUser({ id, actorId, action, change, database = getAdminDat
 module.exports = {
     isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
     isRegistrationAuditEnabled, isWorkshopStorageAuditEnabled, isStorageBoxAuditEnabled, isRepairAuditEnabled,
-    isCatalogAuditEnabled, isTaskBoardCatalogAuditEnabled,
+    isCatalogAuditEnabled, isTaskBoardCatalogAuditEnabled, isTaskBoardTaskAuditEnabled,
     transactTool, transactRolePermissions, transactAdminUser, transactWorkshopStorage, transactStorageBox,
-    transactStorageSettings, transactRepair, transactCatalog, transactTaskBoardCatalog, MAX_ROOT_BYTES
+    transactStorageSettings, transactRepair, transactCatalog, transactTaskBoardCatalog, transactTaskBoardTask, MAX_ROOT_BYTES
 };
