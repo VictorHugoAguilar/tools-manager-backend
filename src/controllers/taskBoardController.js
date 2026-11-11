@@ -13,17 +13,17 @@ function respond(handler) {
 const taskBoardController = {
     getBoard: respond(async (req, res) => res.json(await board.getBoard(req.query))),
 
-    createColumn: respond(async (req, res) => res.status(201).json(await board.createColumn(req.body))),
+    createColumn: respond(async (req, res) => res.status(201).json(await board.createColumn(req.body, req.authUser))),
     updateColumn: respond(async (req, res) => {
-        const column = await board.updateColumn(req.params.id, req.body);
+        const column = await board.updateColumn(req.params.id, req.body, req.authUser);
         return column ? res.json(column) : res.status(404).json({ message: "Lista no encontrada." });
     }),
     deleteColumn: respond(async (req, res) => {
-        const deleted = await board.deleteColumn(req.params.id);
+        const deleted = await board.deleteColumn(req.params.id, req.authUser);
         return deleted ? res.status(204).send() : res.status(404).json({ message: "Lista no encontrada." });
     }),
     reorderColumns: respond(async (req, res) => res.json({
-        columns: await board.reorderColumns(req.body?.ids)
+        columns: await board.reorderColumns(req.body?.ids, req.authUser)
     })),
 
     createTask: respond(async (req, res) => res.status(201).json(
@@ -47,13 +47,13 @@ const taskBoardController = {
         return deleted ? res.status(204).send() : res.status(404).json({ message: "Tarea no encontrada." });
     }),
 
-    createLabel: respond(async (req, res) => res.status(201).json(await board.createLabel(req.body))),
+    createLabel: respond(async (req, res) => res.status(201).json(await board.createLabel(req.body, req.authUser))),
     updateLabel: respond(async (req, res) => {
-        const label = await board.updateLabel(req.params.id, req.body);
+        const label = await board.updateLabel(req.params.id, req.body, req.authUser);
         return label ? res.json(label) : res.status(404).json({ message: "Etiqueta no encontrada." });
     }),
     deleteLabel: respond(async (req, res) => {
-        const deleted = await board.deleteLabel(req.params.id);
+        const deleted = await board.deleteLabel(req.params.id, req.authUser);
         return deleted ? res.status(204).send() : res.status(404).json({ message: "Etiqueta no encontrada." });
     }),
 

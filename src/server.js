@@ -8,7 +8,7 @@ const { auditWorker } = require("./audit/outboxWorker");
 const {
     isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
     isRegistrationAuditEnabled, isWorkshopStorageAuditEnabled, isStorageBoxAuditEnabled, isRepairAuditEnabled,
-    isCatalogAuditEnabled
+    isCatalogAuditEnabled, isTaskBoardCatalogAuditEnabled
 } = require("./audit/businessOutbox");
 
 const PORT = process.env.PORT || 3000;
@@ -23,7 +23,7 @@ async function startServer() {
             if (isToolAuditEnabled() || isRoleAuditEnabled() || isUserAuditEnabled() ||
                 isSelfUserAuditEnabled() || isRecoveryAuditEnabled() || isRegistrationAuditEnabled() ||
                 isWorkshopStorageAuditEnabled() || isStorageBoxAuditEnabled() || isRepairAuditEnabled() ||
-                isCatalogAuditEnabled()) {
+                isCatalogAuditEnabled() || isTaskBoardCatalogAuditEnabled()) {
                 auditWorker.start();
             }
             console.log(`Server running on http://localhost:${PORT}`);

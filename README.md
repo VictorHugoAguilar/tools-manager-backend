@@ -111,7 +111,8 @@ auditan hitos y cambios de acceso, no cada actualización WebSocket.
 | Taller: categorías y lecturas | Categorías con auditoría experimental `workshop.category.created/deleted`; lecturas con `storage.workshop.viewed`, `storage.workshop.searched` y `storage.workshop.categories.viewed`. | Mantener las lecturas instrumentadas existentes y verificar que no contienen consulta ni resultados. |
 | Cajas, productos e imágenes | Auditoría experimental `AUDIT_STORAGE_BOXES_ENABLED`: `box.created/updated/deleted`, `box.image.updated`, `box.product.created/updated/deleted` y `box.product.image.updated`. | Validar atómicamente cada cambio y sus referencias; la conciliación física de imágenes queda pendiente. |
 | Cajas: configuración, listado, detalle y búsqueda | `box.shelf-config.updated` experimental; telemetría `storage.boxes.viewed`, `storage.box.viewed`, `storage.boxes.searched` y `storage.shelf_config.viewed`. | Mantener cobertura existente; no registrar términos ni identificadores en rutas de telemetría. |
-| Tablero: columnas, orden, tareas, movimientos y etiquetas | Sin auditoría durable específica. | Auditoría `task_board.column.created/updated/deleted/reordered`, `task_board.task.created/updated/deleted/moved` y `task_board.label.created/updated/deleted`. Lectura del tablero: agregados. |
+| Tablero: columnas, orden y etiquetas | Auditoría experimental `AUDIT_TASK_BOARD_CATALOGS_ENABLED`: `task_board.column.created/updated/deleted/reordered` y `task_board.label.created/updated/deleted`. | Validar transacciones y concurrencia en Firebase. Lectura del tablero: agregados. |
+| Tablero: tareas y movimientos | Sin auditoría durable específica. | Auditoría propuesta `task_board.task.created/updated/deleted/moved`. |
 | Tablero: comentarios y adjuntos | Sin auditoría durable específica. | Auditoría `task_board.comment.created/updated/deleted` y `task_board.attachment.created/deleted`; solo identificadores, nunca texto ni nombres o URL de archivos. |
 | Lista de tareas: proyectos, orden, archivo y miembros | Sin auditoría durable específica. | Auditoría `todo.project.created/updated/deleted/archived/reordered` y `todo.member.added/removed`. Lecturas: agregados; búsquedas selectivas sin términos. |
 | Lista de tareas: secciones, tareas y subtareas | Sin auditoría durable específica. | Auditoría `todo.section.created/updated/deleted/reordered`, `todo.item.created/updated/deleted/completed/reopened/archived/importance.updated/priority.updated/moved/reordered/duplicated` y `todo.child.created/updated/deleted`. Los alias de proyectos deben producir el mismo evento. |
@@ -209,6 +210,14 @@ etiqueta duplicada devuelve la existente y una edición con nombre duplicado
 devuelve conflicto, sin emitir eventos para esos casos. No habilitar antes de
 validar las transacciones en Firebase y el aislamiento de entornos.
 
+`AUDIT_TASK_BOARD_CATALOGS_ENABLED=true` habilita experimentalmente la auditoría
+de creación, edición, ordenación y eliminación de columnas y de creación,
+edición y eliminación de etiquetas del tablero. Los cambios y eventos se
+confirman juntos en Realtime Database; los eventos no incluyen nombres ni
+contenido. La bandera no cubre tareas, comentarios ni adjuntos del tablero.
+Está desactivada por defecto y requiere validar el aislamiento de entornos y las
+transacciones en Firebase antes de usarla.
+
 La auditoría experimental de cambios de permisos por rol se activa por separado
 con `AUDIT_ROLES_ENABLED=true` (por defecto `false`). La modificación de
 `authRoles` y su evento se escriben en la misma transacción; el evento registra
@@ -248,9 +257,9 @@ Realtime Database. El identificador de actor es el de la cuenta recuperada y
 representa el uso de un enlace válido, no una sesión autenticada. No se
 almacenan en la auditoría ni el token, ni su hash, ni la contraseña.
 
-El publicador se ejecuta cuando cualquiera de las diez banderas está activa y
+El publicador se ejecuta cuando cualquiera de las once banderas está activa y
 procesa toda la outbox, con independencia del tipo de evento. Al desactivar
-las diez banderas se detiene el publicador; las entradas pendientes permanecen en
+las once banderas se detiene el publicador; las entradas pendientes permanecen en
 Realtime Database y se reanudan al volver a habilitar al menos una bandera.
 El panel consulta `GET /api/monitoring/audit-status`, protegido por
 `monitoring:app` y auditado antes de leer la outbox. Muestra el número de

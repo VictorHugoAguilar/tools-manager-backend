@@ -1,6 +1,7 @@
 const { randomUUID } = require("node:crypto");
 const { getAdminDatabase } = require("../config/firebaseAdmin");
 const { deleteTaskAttachment, uploadTaskAttachment } = require("./taskBoardAttachmentService");
+const { isTaskBoardCatalogAuditEnabled, transactTaskBoardCatalog } = require("../audit/businessOutbox");
 
 const INITIAL_COLUMNS = [
     { id: "todo", name: "Por hacer", color: "blue", position: 0 },
@@ -126,7 +127,21 @@ function validateTaskPayload(payload, { partial = false } = {}) {
     return result;
 }
 
+function initializeBoard(board) {
+    if (board._meta?.initialized != null) return board;
+    if (!board.columns) board.columns = Object.fromEntries(INITIAL_COLUMNS.map(({ id, ...value }) => [id, value]));
+    if (!board.labels) board.labels = Object.fromEntries(INITIAL_LABELS.map(({ id, ...value }) => [id, value]));
+    board._meta = { ...board._meta, initialized: true };
+    return board;
+}
+
 async function ensureInitialized() {
+    if (isTaskBoardCatalogAuditEnabled()) {
+        if ((await boardRef("_meta/initialized").get()).exists()) return;
+        const transaction = await boardRef().transaction((current) => initializeBoard(current || {}), undefined, false);
+        if (!transaction.committed) throw serviceError("No se pudo inicializar el tablero.", 503);
+        return;
+    }
     const initialized = await boardRef("_meta/initialized").get();
     if (initialized.exists()) return;
 
@@ -218,7 +233,21 @@ async function assertAssigneeExists(assigneeId) {
     }
 }
 
-async function createColumn(payload) {
+async function createColumn(payload, actor) {
+    if (isTaskBoardCatalogAuditEnabled()) {
+        const name = normalizeName(payload?.name, "El nombre de la lista");
+        const color = normalizeColor(payload?.color ?? "#9fc9ff");
+        const id = randomUUID();
+        return transactTaskBoardCatalog({ targetId: id, actorId: actor?.id, action: "task_board.column.created",
+            change: (board) => {
+                initializeBoard(board);
+                const columns = board.columns || {};
+                if (Object.hasOwn(columns, id)) throw serviceError("La lista ya existe.", 409);
+                const column = { name, color, position: sortByPosition(columns).length };
+                board.columns = { ...columns, [id]: column };
+                return { value: board, result: { id, ...column } };
+            } });
+    }
     await ensureInitialized();
     const name = normalizeName(payload?.name, "El nombre de la lista");
     const color = normalizeColor(payload?.color ?? "#9fc9ff");
@@ -229,7 +258,20 @@ async function createColumn(payload) {
     return { id, ...column };
 }
 
-async function updateColumn(id, payload) {
+async function updateColumn(id, payload, actor) {
+    if (isTaskBoardCatalogAuditEnabled()) return transactTaskBoardCatalog({
+        targetId: id, actorId: actor?.id, action: "task_board.column.updated",
+        change: (board) => {
+            if (!Object.hasOwn(board.columns || {}, id)) return null;
+            const changes = {};
+            if (Object.hasOwn(payload || {}, "name")) changes.name = normalizeName(payload.name, "El nombre de la lista");
+            if (Object.hasOwn(payload || {}, "color")) changes.color = normalizeColor(payload.color);
+            if (!Object.keys(changes).length) throw serviceError("No hay cambios para guardar.");
+            const column = { ...board.columns[id], ...changes };
+            board.columns[id] = column;
+            return { value: board, result: { id, ...column } };
+        }
+    });
     const ref = boardRef(`columns/${id}`);
     const snapshot = await ref.get();
     if (!snapshot.exists()) return null;
@@ -241,7 +283,20 @@ async function updateColumn(id, payload) {
     return { id, ...snapshot.val(), ...changes };
 }
 
-async function reorderColumns(ids) {
+async function reorderColumns(ids, actor) {
+    if (isTaskBoardCatalogAuditEnabled()) return transactTaskBoardCatalog({
+        targetId: "taskBoard", actorId: actor?.id, action: "task_board.column.reordered",
+        change: (board) => {
+            const columns = sortByPosition(board.columns);
+            if (!Array.isArray(ids) || ids.length !== columns.length ||
+                new Set(ids).size !== columns.length || ids.some((id) => !columns.some((column) => column.id === id))) {
+                throw serviceError("El nuevo orden de listas no es válido.");
+            }
+            if (!ids.length) return { unchanged: true, result: [] };
+            ids.forEach((id, position) => { board.columns[id].position = position; });
+            return { value: board, result: sortByPosition(board.columns) };
+        }
+    });
     const columns = sortByPosition((await boardRef("columns").get()).val());
     if (!Array.isArray(ids) || ids.length !== columns.length ||
         new Set(ids).size !== columns.length || ids.some((id) => !columns.some((column) => column.id === id))) {
@@ -253,7 +308,19 @@ async function reorderColumns(ids) {
     return sortByPosition((await boardRef("columns").get()).val());
 }
 
-async function deleteColumn(id) {
+async function deleteColumn(id, actor) {
+    if (isTaskBoardCatalogAuditEnabled()) return Boolean(await transactTaskBoardCatalog({
+        targetId: id, actorId: actor?.id, action: "task_board.column.deleted",
+        change: (board) => {
+            if (!Object.hasOwn(board.columns || {}, id)) return null;
+            if (Object.values(board.tasks || {}).some((task) => task?.columnId === id)) {
+                throw serviceError("Esta lista contiene tareas. Muévelas o elimínalas antes de borrar la lista.", 409);
+            }
+            delete board.columns[id];
+            sortByPosition(board.columns).forEach((item, position) => { board.columns[item.id].position = position; });
+            return { value: board, result: true };
+        }
+    }));
     const [column, tasks] = await Promise.all([
         boardRef(`columns/${id}`).get(),
         boardRef("tasks").get()
@@ -407,9 +474,23 @@ async function deleteTask(id) {
     return true;
 }
 
-async function createLabel(payload) {
+async function createLabel(payload, actor) {
     const name = normalizeName(payload?.name, "El nombre de la etiqueta");
     const color = normalizeColor(payload?.color);
+    if (isTaskBoardCatalogAuditEnabled()) {
+        const id = randomUUID();
+        return transactTaskBoardCatalog({ targetId: id, actorId: actor?.id, action: "task_board.label.created",
+            change: (board) => {
+                const labels = board.labels || {};
+                if (Object.values(labels).some((label) => label?.name?.toLowerCase() === name.toLowerCase())) {
+                    throw serviceError("Ya existe una etiqueta con ese nombre.", 409);
+                }
+                if (Object.hasOwn(labels, id)) throw serviceError("La etiqueta ya existe.", 409);
+                const label = { name, color };
+                board.labels = { ...labels, [id]: label };
+                return { value: board, result: { id, ...label } };
+            } });
+    }
     const labels = (await boardRef("labels").get()).val() || {};
     if (Object.values(labels).some((label) => label?.name?.toLowerCase() === name.toLowerCase())) {
         throw serviceError("Ya existe una etiqueta con ese nombre.", 409);
@@ -420,7 +501,24 @@ async function createLabel(payload) {
     return { id, ...label };
 }
 
-async function updateLabel(id, payload) {
+async function updateLabel(id, payload, actor) {
+    if (isTaskBoardCatalogAuditEnabled()) return transactTaskBoardCatalog({
+        targetId: id, actorId: actor?.id, action: "task_board.label.updated",
+        change: (board) => {
+            const labels = board.labels || {};
+            if (!Object.hasOwn(labels, id)) return null;
+            const changes = {};
+            if (Object.hasOwn(payload || {}, "name")) changes.name = normalizeName(payload.name, "El nombre de la etiqueta");
+            if (Object.hasOwn(payload || {}, "color")) changes.color = normalizeColor(payload.color);
+            if (!Object.keys(changes).length) throw serviceError("No hay cambios para guardar.");
+            if (changes.name && Object.entries(labels).some(([labelId, label]) =>
+                labelId !== id && label?.name?.toLowerCase() === changes.name.toLowerCase()
+            )) throw serviceError("Ya existe una etiqueta con ese nombre.", 409);
+            const label = { ...labels[id], ...changes };
+            board.labels[id] = label;
+            return { value: board, result: { id, ...label } };
+        }
+    });
     const ref = boardRef(`labels/${id}`);
     const snapshot = await ref.get();
     if (!snapshot.exists()) return null;
@@ -436,7 +534,18 @@ async function updateLabel(id, payload) {
     return { id, ...snapshot.val(), ...changes };
 }
 
-async function deleteLabel(id) {
+async function deleteLabel(id, actor) {
+    if (isTaskBoardCatalogAuditEnabled()) return Boolean(await transactTaskBoardCatalog({
+        targetId: id, actorId: actor?.id, action: "task_board.label.deleted",
+        change: (board) => {
+            if (!Object.hasOwn(board.labels || {}, id)) return null;
+            delete board.labels[id];
+            for (const task of Object.values(board.tasks || {})) {
+                if (task?.labelIds?.includes(id)) task.labelIds = task.labelIds.filter((labelId) => labelId !== id);
+            }
+            return { value: board, result: true };
+        }
+    }));
     const labelRef = boardRef(`labels/${id}`);
     if (!(await labelRef.get()).exists()) return false;
     const tasks = (await boardRef("tasks").get()).val() || {};

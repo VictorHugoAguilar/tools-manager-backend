@@ -46,6 +46,10 @@ function isCatalogAuditEnabled() {
     return process.env.AUDIT_CATALOGS_ENABLED === "true";
 }
 
+function isTaskBoardCatalogAuditEnabled() {
+    return process.env.AUDIT_TASK_BOARD_CATALOGS_ENABLED === "true";
+}
+
 async function transactEntity({ id, actorId, action, change, database, collection, allowEmptyRoot, collectionPath, targetId = id, auditScope }) {
     if (typeof id !== "string" || !id || /[.#$/\[\]\u0000-\u001f\u007f]/.test(id) ||
         typeof targetId !== "string" || !targetId || /[.#$/\[\]\u0000-\u001f\u007f]/.test(targetId) ||
@@ -159,6 +163,20 @@ function transactCatalog({ id, actorId, collection, operation, change, database 
         collection, allowEmptyRoot: operation === "created" });
 }
 
+function transactTaskBoardCatalog({ targetId, actorId, action, change, database = getAdminDatabase() }) {
+    const actions = [
+        "task_board.column.created", "task_board.column.updated", "task_board.column.deleted",
+        "task_board.column.reordered", "task_board.label.created", "task_board.label.updated",
+        "task_board.label.deleted"
+    ];
+    if (!actions.includes(action)) throw new Error("Acción de auditoría de tablero no válida.");
+    return transactEntity({
+        id: "taskBoard", targetId, actorId, action, change: (current) => change(current || {}),
+        database, collectionPath: [],
+        allowEmptyRoot: action.endsWith(".created") || action === "task_board.column.reordered"
+    });
+}
+
 function transactRolePermissions({ id, actorId, change, database = getAdminDatabase() }) {
     return transactEntity({
         id, actorId, change, database, collection: "authRoles", allowEmptyRoot: false,
@@ -178,7 +196,7 @@ function transactAdminUser({ id, actorId, action, change, database = getAdminDat
 module.exports = {
     isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
     isRegistrationAuditEnabled, isWorkshopStorageAuditEnabled, isStorageBoxAuditEnabled, isRepairAuditEnabled,
-    isCatalogAuditEnabled,
+    isCatalogAuditEnabled, isTaskBoardCatalogAuditEnabled,
     transactTool, transactRolePermissions, transactAdminUser, transactWorkshopStorage, transactStorageBox,
-    transactStorageSettings, transactRepair, transactCatalog, MAX_ROOT_BYTES
+    transactStorageSettings, transactRepair, transactCatalog, transactTaskBoardCatalog, MAX_ROOT_BYTES
 };
