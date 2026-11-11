@@ -173,7 +173,7 @@ Las suites existentes `test/telemetry`, `test/services`, `test/auth` y
 `test/controllers` cubren partes de estos casos con dobles; las filas propuestas
 necesitan pruebas propias y validación con Firebase emulado o real.
 
-La ingesta y la cola de eventos de frontend están desactivadas por defecto mediante
+La ingesta y la cola de eventos del backend están desactivadas por defecto mediante
 `TELEMETRY_ENABLED=false`. El dashboard es preliminar: faltan la instrumentación
 completa de la aplicación y métricas de frontend y WebSocket completas.
 Las auditorías experimentales de
@@ -515,6 +515,26 @@ La salud del heartbeat en el recolector corresponde solo a la instancia que
 responde. Configura el TTL de Firestore en `expiresAt` para
 `monitoringInstances` (retención asignada de 48 horas) y conserva el índice
 de campo único para `heartbeatAt`. La expiración TTL es eventual.
+
+Cada proceso backend y WebSocket con telemetría habilitada toma muestras locales
+de recursos junto al heartbeat y publica la última muestra disponible en su
+documento `monitoringInstances`. El resumen muestra las instancias con señal
+reciente del entorno actual, no las instancias que han dejado de enviar señales.
+La CPU es el tiempo de CPU del proceso entre dos muestras dividido por el tiempo
+transcurrido: 100 % equivale a un núcleo y puede superar 100 %. La primera
+muestra no tiene CPU. La memoria es RSS del proceso en MiB, no un porcentaje
+del límite del contenedor ni memoria del host.
+
+El disco es la capacidad del sistema de archivos que contiene `/` en cada
+instancia, no Firebase Storage. Puede ser efímero o compartido entre procesos;
+no se suman los valores. Se muestran espacio usado, espacio disponible para el
+proceso y capacidad total, calculados con `statfs`. El espacio reservado puede
+explicar que usado más disponible sea menor que el total. La lectura del disco
+es asíncrona y no bloquea el heartbeat; un fallo se registra en el servidor y
+se muestra como «Sin datos». Las muestras con más de 120 segundos, fechas
+futuras o formato inválido no se muestran; una diferencia de reloj entre
+instancias puede hacer que falten datos. Estas cifras son instantáneas y no
+constituyen un histórico ni una garantía de disponibilidad.
 
 El backend agrega por minuto y por instancia las peticiones HTTP completadas
 (exceptuadas las rutas de telemetría y monitorización), sus respuestas 5xx y

@@ -38,6 +38,44 @@ test("heartbeat writes once per instance using server timestamp and expiry", asy
     assert.ok(heartbeat.lastSuccess);
 });
 
+test("heartbeat publishes resource snapshot without waiting for disk sampling", async () => {
+    let written;
+    const resources = { process: { sampledAt: 1000, cpuPercent: null, rssBytes: 12 }, disk: null };
+    const heartbeat = new Heartbeat({
+        instanceId: "instance", service: "backend", environment: "test",
+        resourceSampler: { snapshot: () => resources },
+        getDatabase: () => ({ collection: () => ({ doc: () => ({
+            set: async (data) => { written = data; }
+        }) }) })
+    });
+    await heartbeat.write();
+    assert.deepEqual(written.resources, resources);
+});
+
+test("resource summary returns only recent same-environment instances and safe fresh samples", async () => {
+    const now = 1800000000000;
+    const doc = (id, service, environment, age, resources) => ({
+        id, data: () => ({ service, environment, heartbeatAt: Timestamp.fromMillis(now - age), resources })
+    });
+    const processSample = { sampledAt: now - 1000, cpuPercent: 150, rssBytes: 1024, privateData: "hidden" };
+    const diskSample = { sampledAt: now - 2000, totalBytes: 100, usedBytes: 60, availableBytes: 30 };
+    const result = await loadHeartbeatSummary(queryDatabase([
+        doc("b", "backend", "test", 1000, { process: processSample, disk: diskSample }),
+        doc("w", "websocket", "test", 2000, { process: { ...processSample, sampledAt: now - FRESHNESS_MS - 1 }, disk: { ...diskSample, availableBytes: 50 } }),
+        doc("old", "backend", "test", FRESHNESS_MS + 1, { process: processSample, disk: diskSample }),
+        doc("other", "backend", "production", 1000, { process: processSample, disk: diskSample }),
+        doc("legacy", "backend", "test", 3000)
+    ]), { now, environment: "test" });
+    assert.deepEqual(result.resources.backend, [{
+        instanceId: "b", heartbeatAt: new Date(now - 1000).toISOString(),
+        process: { sampledAt: new Date(now - 1000).toISOString(), cpuPercent: 150, rssBytes: 1024 },
+        disk: { sampledAt: new Date(now - 2000).toISOString(), totalBytes: 100, usedBytes: 60, availableBytes: 30 }
+    }, { instanceId: "legacy", heartbeatAt: new Date(now - 3000).toISOString(), process: null, disk: null }]);
+    assert.deepEqual(result.resources.websocket, [{
+        instanceId: "w", heartbeatAt: new Date(now - 2000).toISOString(), process: null, disk: null
+    }]);
+});
+
 test("WebSocket heartbeat publishes only bounded counters without connection payloads", async () => {
     let written;
     const heartbeat = new Heartbeat({

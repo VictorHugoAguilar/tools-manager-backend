@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const express = require("express");
+const { Timestamp } = require("firebase-admin/firestore");
 const sessions = require("../../src/services/authSessionService");
 const originalResolveSession = sessions.resolveSession;
 sessions.resolveSession = async (token) => {
@@ -45,7 +46,17 @@ test("monitoring requires permission and a durable audit before reading bounded 
                 where() { return this; },
                 orderBy() { return this; },
                 limit() { return this; },
-                async get() { calls.push(["heartbeats"]); return { docs: [] }; }
+                async get() {
+                    calls.push(["heartbeats"]);
+                    const time = Date.now() - 1000;
+                    return { docs: [{ id: "backend-instance", data: () => ({
+                        service: "backend", environment: "test", heartbeatAt: Timestamp.fromMillis(time),
+                        resources: {
+                            process: { sampledAt: time, cpuPercent: 123, rssBytes: 1024 },
+                            disk: { sampledAt: time, totalBytes: 100, usedBytes: 60, availableBytes: 35 }
+                        }
+                    }) }] };
+                }
             };
             assert.equal(name, "auditEvents");
             return { doc: (id) => ({
@@ -77,6 +88,9 @@ test("monitoring requires permission and a durable audit before reading bounded 
         assert.equal(payload.httpMetrics.count, 0);
         assert.deepEqual(payload.webSocketMetrics.points, []);
         assert.equal(payload.heartbeats.services.websocket.lastHeartbeatAt, null);
+        assert.equal(payload.heartbeats.resources.backend[0].instanceId, "backend-instance");
+        assert.equal(payload.heartbeats.resources.backend[0].process.cpuPercent, 123);
+        assert.equal(payload.heartbeats.resources.backend[0].disk.availableBytes, 35);
         assert.equal(payload.events[0].eventId, "event-id");
         assert.equal(payload.events[0].actorId, undefined);
         assert.equal(payload.events[0].connectionId, "connection-id");
@@ -86,6 +100,11 @@ test("monitoring requires permission and a durable audit before reading bounded 
         assert.deepEqual(calls[1], ["environment", "==", "test"]);
         assert.equal(calls[3][2] - calls[2][2], 86400000);
         assert.deepEqual(calls[5], ["limit", 25]);
+        const servicesResponse = await fetch(url.replace("/overview", "/services"), options("allowed"));
+        assert.equal(servicesResponse.status, 200);
+        const services = await servicesResponse.json();
+        assert.equal(services.resources.backend[0].instanceId, "backend-instance");
+        assert.equal(services.resources.backend[0].disk.totalBytes, 100);
         calls.length = 0;
         auditFails = true;
         assert.equal((await fetch(url, options("allowed"))).status, 500);

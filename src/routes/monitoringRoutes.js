@@ -155,7 +155,8 @@ function createMonitoringRouter(options = {}) {
             return res.json({
                 generatedAt: now.toISOString(),
                 freshnessSeconds: heartbeats.freshnessSeconds,
-                services: { ...heartbeats.services, frontend: null, storage: null }
+                services: { ...heartbeats.services, frontend: null, storage: null },
+                resources: heartbeats.resources
             });
         } catch (error) {
             return next(error);

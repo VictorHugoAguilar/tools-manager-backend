@@ -1,4 +1,5 @@
 const { FieldValue, Timestamp } = require("firebase-admin/firestore");
+const { ResourceSampler, MAX_SAMPLE_AGE_MS } = require("./resourceSampler");
 
 const HEARTBEAT_INTERVAL_MS = 30000;
 const FRESHNESS_MS = 120000;
@@ -7,7 +8,7 @@ const MAX_INSTANCES = 500;
 const METRIC_HEALTH_KEYS = ["pending", "activeIntervals", "dropped", "droppedSamples", "failed", "consecutiveFailures"];
 
 class Heartbeat {
-    constructor({ getDatabase, instanceId, service, environment, intervalMs = HEARTBEAT_INTERVAL_MS }) {
+    constructor({ getDatabase, instanceId, service, environment, intervalMs = HEARTBEAT_INTERVAL_MS, resourceSampler }) {
         this.getDatabase = getDatabase;
         this.instanceId = instanceId;
         this.service = service;
@@ -19,6 +20,7 @@ class Heartbeat {
         this.lastSuccess = null;
         this.webSocketStatsProvider = null;
         this.webSocketMetricHealthProvider = null;
+        this.resourceSampler = resourceSampler || new ResourceSampler({ intervalMs });
     }
 
     setWebSocketMetricHealthProvider(provider) {
@@ -37,6 +39,7 @@ class Heartbeat {
 
     start() {
         if (this.timer) return;
+        this.resourceSampler.start();
         void this.write();
         this.timer = setInterval(() => { void this.write(); }, this.intervalMs);
         this.timer.unref();
@@ -45,6 +48,7 @@ class Heartbeat {
     stop() {
         if (this.timer) clearInterval(this.timer);
         this.timer = null;
+        this.resourceSampler.stop();
     }
 
     write() {
@@ -66,6 +70,7 @@ class Heartbeat {
                 environment: this.environment,
                 heartbeatAt: FieldValue.serverTimestamp(),
                 expiresAt: Timestamp.fromMillis(Date.now() + RETENTION_MS),
+                resources: this.resourceSampler.snapshot(),
                 ...(webSocketStats ? { webSocketStats } : {}),
                 ...(webSocketMetricHealth ? {
                     webSocketMetricHealth: Object.fromEntries(
@@ -105,6 +110,7 @@ async function loadHeartbeatSummary(db, { now, environment }) {
     let missingConnections = 0;
     const metricHealth = Object.fromEntries(METRIC_HEALTH_KEYS.map((key) => [key, 0]));
     let missingMetricHealth = 0;
+    const resources = { backend: [], websocket: [] };
     for (const doc of snapshot.docs) {
         const data = doc.data();
         if (data.environment !== environment || !Object.hasOwn(services, data.service)) continue;
@@ -119,6 +125,35 @@ async function loadHeartbeatSummary(db, { now, environment }) {
         }
         if (now - time <= FRESHNESS_MS) {
             summary.recentInstances += 1;
+            if (typeof doc.id === "string" && doc.id) {
+                const processSample = data.resources?.process;
+                const diskSample = data.resources?.disk;
+                const freshSample = (sample) => sample && Number.isSafeInteger(sample.sampledAt) &&
+                    sample.sampledAt <= now && now - sample.sampledAt <= MAX_SAMPLE_AGE_MS;
+                const validProcess = freshSample(processSample) &&
+                    (processSample.cpuPercent === null ||
+                        (typeof processSample.cpuPercent === "number" && Number.isFinite(processSample.cpuPercent) && processSample.cpuPercent >= 0)) &&
+                    Number.isSafeInteger(processSample.rssBytes) && processSample.rssBytes >= 0;
+                const validDisk = freshSample(diskSample) &&
+                    Number.isSafeInteger(diskSample.totalBytes) && diskSample.totalBytes > 0 &&
+                    Number.isSafeInteger(diskSample.usedBytes) && diskSample.usedBytes >= 0 &&
+                    diskSample.usedBytes <= diskSample.totalBytes &&
+                    Number.isSafeInteger(diskSample.availableBytes) && diskSample.availableBytes >= 0 &&
+                    diskSample.availableBytes <= diskSample.totalBytes - diskSample.usedBytes;
+                resources[data.service].push({
+                    instanceId: doc.id,
+                    heartbeatAt: new Date(time).toISOString(),
+                    process: validProcess ? {
+                        sampledAt: new Date(processSample.sampledAt).toISOString(),
+                        cpuPercent: processSample.cpuPercent, rssBytes: processSample.rssBytes
+                    } : null,
+                    disk: validDisk ? {
+                        sampledAt: new Date(diskSample.sampledAt).toISOString(),
+                        totalBytes: diskSample.totalBytes, usedBytes: diskSample.usedBytes,
+                        availableBytes: diskSample.availableBytes
+                    } : null
+                });
+            }
             if (data.service === "websocket") {
                 const active = data.webSocketStats?.activeConnections;
                 if (Number.isSafeInteger(active) && active >= 0) knownConnections += active;
@@ -139,7 +174,7 @@ async function loadHeartbeatSummary(db, { now, environment }) {
     if (services.websocket.recentInstances && !missingMetricHealth) {
         services.websocket.metricHealth = metricHealth;
     }
-    return { freshnessSeconds: FRESHNESS_MS / 1000, services };
+    return { freshnessSeconds: FRESHNESS_MS / 1000, services, resources };
 }
 
 module.exports = { Heartbeat, loadHeartbeatSummary, FRESHNESS_MS, RETENTION_MS, MAX_INSTANCES };
