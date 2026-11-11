@@ -440,13 +440,19 @@ Las métricas y estados sin fuente aparecen como «Sin datos».
 La sección de logs permite buscar por intervalo, servicio, nivel, nombre exacto
 de evento y `traceId`. La API `GET /api/monitoring/events` exige `from` y `to`
 UTC ISO-8601, limita el intervalo a siete días y devuelve hasta 25 resultados y
-un cursor para la siguiente página. Filtra por el entorno del servidor, requiere
+un cursor para la siguiente página. El panel admite fechas opcionales en la hora
+local del navegador, convertidas a UTC, y permite avanzar y retroceder entre
+páginas y limpiar los filtros. Sin fechas usa el periodo y la fecha de generación
+del resumen; al actualizar el panel se descartan los resultados de la búsqueda
+anterior. Filtra por el entorno del servidor, requiere
 `monitoring:app` y registra el acceso en `auditEvents` antes de leer. No ofrece
 búsqueda de texto libre ni filtros por usuario o ruta en esta fase. El cursor
 identifica el último evento de la página y solo es válido con los mismos filtros
 y fechas; si ese documento se elimina por TTL se debe iniciar una nueva búsqueda.
 `GET /api/monitoring/traces/:traceId` utiliza el mismo rango y paginación para
-consultar una traza concreta, y también audita el acceso.
+consultar una traza concreta, y también audita el acceso. El botón «Ver traza»
+consulta todos sus eventos en el intervalo activo, sin aplicar los demás filtros;
+la secuencia se presenta en orden descendente de recepción, no como árbol de spans.
 
 `GET /api/monitoring/metrics` requiere `from` y `to` en el mismo formato UTC,
 un intervalo entre un minuto y siete días, `interval=1m|1h` y una de las parejas
