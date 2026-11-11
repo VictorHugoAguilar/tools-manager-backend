@@ -9,7 +9,8 @@ const {
     isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
     isRegistrationAuditEnabled, isWorkshopStorageAuditEnabled, isStorageBoxAuditEnabled, isRepairAuditEnabled,
     isCatalogAuditEnabled, isTaskBoardCatalogAuditEnabled, isTaskBoardTaskAuditEnabled,
-    isTodoProjectAuditEnabled, isTodoSectionAuditEnabled, isDrawingDocumentAuditEnabled, isDrawingPageAuditEnabled
+    isTodoProjectAuditEnabled, isTodoSectionAuditEnabled, isTodoItemAuditEnabled,
+    isDrawingDocumentAuditEnabled, isDrawingPageAuditEnabled
 } = require("./audit/businessOutbox");
 
 const PORT = process.env.PORT || 3000;
@@ -19,6 +20,7 @@ async function startServer() {
     try {
         const taskBoardTaskAuditEnabled = isTaskBoardTaskAuditEnabled();
         const todoSectionAuditEnabled = isTodoSectionAuditEnabled();
+        const todoItemAuditEnabled = isTodoItemAuditEnabled();
         await connectToDatabase();
         await initializeAuthData();
         return app.listen(PORT, () => {
@@ -27,7 +29,7 @@ async function startServer() {
                 isSelfUserAuditEnabled() || isRecoveryAuditEnabled() || isRegistrationAuditEnabled() ||
                 isWorkshopStorageAuditEnabled() || isStorageBoxAuditEnabled() || isRepairAuditEnabled() ||
                 isCatalogAuditEnabled() || isTaskBoardCatalogAuditEnabled() || taskBoardTaskAuditEnabled ||
-                isTodoProjectAuditEnabled() || todoSectionAuditEnabled ||
+                isTodoProjectAuditEnabled() || todoSectionAuditEnabled || todoItemAuditEnabled ||
                 isDrawingDocumentAuditEnabled() || isDrawingPageAuditEnabled()) {
                 auditWorker.start();
             }

@@ -70,6 +70,14 @@ function isTodoSectionAuditEnabled() {
     return enabled;
 }
 
+function isTodoItemAuditEnabled() {
+    const enabled = process.env.AUDIT_TODO_ITEMS_ENABLED === "true";
+    if (enabled && !isTodoSectionAuditEnabled()) {
+        throw new Error("AUDIT_TODO_ITEMS_ENABLED requiere AUDIT_TODO_SECTIONS_ENABLED.");
+    }
+    return enabled;
+}
+
 function isDrawingDocumentAuditEnabled() {
     return process.env.AUDIT_DRAWING_DOCUMENTS_ENABLED === "true";
 }
@@ -256,6 +264,20 @@ async function transactTodoSection({ targetId, actorId, action, change, database
     return result;
 }
 
+async function transactTodoItem({ targetId, actorId, action, change, database = getAdminDatabase() }) {
+    if (!["todo.item.created", "todo.item.moved"].includes(action)) {
+        throw new Error("Acción de auditoría de tarea no válida.");
+    }
+    const result = await transactEntity({
+        id: "todoList", targetId, actorId, action, database, collectionPath: [],
+        allowEmptyRoot: false, change: (data, _entities, root) => change(data || {}, root)
+    });
+    if (result === null) {
+        throw Object.assign(new Error("No se pudo confirmar la operación auditada de tareas."), { statusCode: 503 });
+    }
+    return result;
+}
+
 function transactDrawingDocument({ targetId, actorId, action, change, database = getAdminDatabase() }) {
     const actions = [
         "drawing.document.created", "drawing.document.updated", "drawing.document.archived",
@@ -298,8 +320,9 @@ module.exports = {
     isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
     isRegistrationAuditEnabled, isWorkshopStorageAuditEnabled, isStorageBoxAuditEnabled, isRepairAuditEnabled,
     isCatalogAuditEnabled, isTaskBoardCatalogAuditEnabled, isTaskBoardTaskAuditEnabled,
-    isTodoProjectAuditEnabled, isTodoSectionAuditEnabled, isDrawingDocumentAuditEnabled, isDrawingPageAuditEnabled,
+    isTodoProjectAuditEnabled, isTodoSectionAuditEnabled, isTodoItemAuditEnabled,
+    isDrawingDocumentAuditEnabled, isDrawingPageAuditEnabled,
     transactTool, transactRolePermissions, transactAdminUser, transactWorkshopStorage, transactStorageBox,
     transactStorageSettings, transactRepair, transactCatalog, transactTaskBoardCatalog, transactTaskBoardTask,
-    transactTodoProject, transactTodoSection, transactDrawingDocument, transactDrawingPage, MAX_ROOT_BYTES
+    transactTodoProject, transactTodoSection, transactTodoItem, transactDrawingDocument, transactDrawingPage, MAX_ROOT_BYTES
 };
