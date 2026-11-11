@@ -1,6 +1,7 @@
 const { createHash, randomBytes } = require("node:crypto");
 const { getAdminDatabase } = require("../config/firebaseAdmin");
 const { getProfileWithPermissions } = require("./userService");
+const { transactAdminUser } = require("../audit/businessOutbox");
 
 const SESSION_TTL_MS = 5 * 24 * 60 * 60 * 1000;
 
@@ -74,11 +75,37 @@ async function consumePasswordReset(token) {
     return result.committed ? consumed : null;
 }
 
+async function completeAuditedPasswordReset(token, passwordHash) {
+    const tokenHash = hashToken(token);
+    const snapshot = await getPasswordResetsRef().child(tokenHash).get();
+    const reset = snapshot.val();
+    if (!reset || typeof reset.uid !== "string" || !reset.uid ||
+        !Number.isFinite(reset.expiresAt) || reset.expiresAt <= Date.now()) return null;
+    return transactAdminUser({
+        id: reset.uid, actorId: reset.uid, action: "user.password.recovered",
+        change: (current, _profiles, root) => {
+            const latest = root.authPasswordResets?.[tokenHash];
+            if (!latest || latest.uid !== reset.uid ||
+                !Number.isFinite(latest.expiresAt) || latest.expiresAt <= Date.now() ||
+                !current || latest.sessionVersion === undefined ||
+                (Number(current.sessionVersion) || 0) !== latest.sessionVersion) return null;
+            const updated = {
+                ...current, passwordHash,
+                sessionVersion: (Number(current.sessionVersion) || 0) + 1,
+                updatedAt: new Date().toISOString()
+            };
+            delete root.authPasswordResets[tokenHash];
+            return { value: updated, result: true };
+        }
+    });
+}
+
 module.exports = {
     SESSION_TTL_MS,
     createSession,
     deleteSession,
     consumePasswordReset,
+    completeAuditedPasswordReset,
     resolveSession,
     storePasswordReset
 };

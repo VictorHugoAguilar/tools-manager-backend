@@ -25,7 +25,7 @@ function validateUserAvatar(file) {
     }
 }
 
-async function updateUserAvatar(uid, file) {
+async function updateUserAvatar(uid, file, options = {}) {
     validateUserAvatar(file);
     const existing = await getProfile(uid);
     if (!existing) {
@@ -33,7 +33,7 @@ async function updateUserAvatar(uid, file) {
     }
 
     const uploaded = await uploadImageForUser(uid, file);
-    const updated = await updateProfile(uid, { profileImage: uploaded.downloadUrl });
+    const updated = await updateProfile(uid, { profileImage: uploaded.downloadUrl }, options);
     if (!updated) {
         await deleteImageByUrl(uploaded.downloadUrl);
         throw Object.assign(new Error("No se pudo actualizar la imagen de perfil."), { statusCode: 500 });

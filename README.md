@@ -88,9 +88,10 @@ Las imagenes se suben a Firebase Storage en la carpeta `tools/<toolId>/`.
 
 La ingesta y la cola de eventos de frontend están desactivadas por defecto mediante
 `TELEMETRY_ENABLED=false`. El dashboard es preliminar: faltan la instrumentación
-completa de la aplicación, métricas de frontend y métricas WebSocket completas,
-y auditoría durable de cambios de usuarios. Las auditorías experimentales de
-herramientas y permisos de roles están desactivadas por defecto. No debe considerarse una
+completa de la aplicación y métricas de frontend y WebSocket completas.
+Las auditorías experimentales de
+herramientas, permisos de roles y cambios de usuarios están
+desactivadas por defecto. No debe considerarse una
 solución de monitorización lista para producción.
 
 La auditoría de negocio sigue incompleta. Existe una implementación experimental
@@ -113,9 +114,39 @@ datos del perfil. Si cambia un rol concurrentemente, el evento refleja el estado
 previo de la transacción que finalmente se confirmó. La comprobación de permisos
 obligatorios del rol administrador se mantiene.
 
-El publicador se ejecuta cuando cualquiera de las dos banderas está activa y
+La auditoría experimental de las acciones administrativas de usuarios se activa
+con `AUDIT_ADMIN_USERS_ENABLED=true` (por defecto `false`). Cubre la creación,
+edición y eliminación de usuarios, asignación de rol, cambio de estado,
+restablecimiento administrativo de contraseña y actualización administrativa
+del avatar. El cambio y el evento se confirman juntos en Realtime Database; los
+eventos no contienen nombres, correos, contraseñas, hashes ni URL de imágenes.
+Los cambios de rol y estado incluyen los valores anteriores y nuevos. Se
+verifican dentro de la transacción la unicidad del correo, la existencia del rol,
+el último administrador activo y la versión de sesión.
+
+`AUDIT_SELF_USERS_ENABLED=true` habilita por separado la auditoría experimental
+de edición del nombre propio, cambio de contraseña y avatar propio. La operación
+y su evento se escriben en la misma transacción; solo se registran identificadores
+y acción, nunca nombres, contraseñas, hashes ni URL. En esa fase se comprueba la
+versión de sesión dentro de la transacción: si la cuenta se desactiva o cambia la
+sesión durante la operación, se rechaza y se solicita iniciar sesión de nuevo.
+`AUDIT_REGISTRATION_ENABLED=true` habilita experimentalmente la auditoría del
+registro público y del avatar incluido en el alta. Si un paso posterior del
+registro falla, la eliminación de compensación se audita como un evento
+separado; si esa eliminación falla, queda el evento de alta y el error se
+registra. El identificador de actor en el registro es el de la cuenta recién
+creada, no una identidad autenticada previamente.
+
+`AUDIT_PASSWORD_RECOVERY_ENABLED=true` habilita experimentalmente la auditoría
+de recuperación de contraseña. El consumo del enlace, el cambio de contraseña,
+la revocación por versión de sesión y el evento se confirman juntos en
+Realtime Database. El identificador de actor es el de la cuenta recuperada y
+representa el uso de un enlace válido, no una sesión autenticada. No se
+almacenan en la auditoría ni el token, ni su hash, ni la contraseña.
+
+El publicador se ejecuta cuando cualquiera de las seis banderas está activa y
 procesa toda la outbox, con independencia del tipo de evento. Al desactivar
-ambas banderas se detiene el publicador; las entradas pendientes permanecen en
+las seis banderas se detiene el publicador; las entradas pendientes permanecen en
 Realtime Database y se reanudan al volver a habilitar al menos una bandera.
 
 Esta opción mantiene las rutas actuales, pero cada transacción afecta a la raíz
@@ -127,8 +158,7 @@ espacio. Firebase limita a 16 MB una solicitud de escritura desde los SDK.
 la carga, los límites y la recuperación mediante emuladores y pruebas de
 concurrencia. Storage y Realtime Database no comparten transacciones: la subida
 o eliminación física de imágenes puede fallar por separado y aún necesita
-conciliación durable. La auditoría de cambios de usuarios y asignación de roles
-a usuarios no está implementada. Tampoco se ha probado esta fase contra Firebase real.
+conciliación durable. Tampoco se ha probado esta fase contra Firebase real.
 
 La ruta `/monitorizacion` requiere el permiso `monitoring:app`, verificado también
 en `GET /api/monitoring/overview`. El catálogo incorpora los permisos nuevos al

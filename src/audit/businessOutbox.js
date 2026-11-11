@@ -14,6 +14,22 @@ function isRoleAuditEnabled() {
     return process.env.AUDIT_ROLES_ENABLED === "true";
 }
 
+function isUserAuditEnabled() {
+    return process.env.AUDIT_ADMIN_USERS_ENABLED === "true";
+}
+
+function isSelfUserAuditEnabled() {
+    return process.env.AUDIT_SELF_USERS_ENABLED === "true";
+}
+
+function isRecoveryAuditEnabled() {
+    return process.env.AUDIT_PASSWORD_RECOVERY_ENABLED === "true";
+}
+
+function isRegistrationAuditEnabled() {
+    return process.env.AUDIT_REGISTRATION_ENABLED === "true";
+}
+
 async function transactEntity({ id, actorId, action, change, database, collection, allowEmptyRoot }) {
     if (typeof id !== "string" || !id || /[.#$/\[\]\u0000-\u001f\u007f]/.test(id) ||
         typeof actorId !== "string" || !actorId || typeof change !== "function") {
@@ -36,7 +52,13 @@ async function transactEntity({ id, actorId, action, change, database, collectio
             return;
         }
         const entities = root[collection] || {};
-        const outcome = change(entities[id] || null);
+        let outcome;
+        try {
+            outcome = change(entities[id] || null, entities, root);
+        } catch (error) {
+            transactionError = error;
+            return;
+        }
         if (!outcome) return;
         resultValue = outcome.result;
         if (outcome.value === null) delete entities[id];
@@ -70,4 +92,17 @@ function transactRolePermissions({ id, actorId, change, database = getAdminDatab
     });
 }
 
-module.exports = { isToolAuditEnabled, isRoleAuditEnabled, transactTool, transactRolePermissions, MAX_ROOT_BYTES };
+function transactAdminUser({ id, actorId, action, change, database = getAdminDatabase() }) {
+    const actions = ["user.created", "user.updated", "user.deleted", "user.role.updated",
+        "user.status.updated", "user.password.reset", "user.avatar.updated",
+        "user.profile.updated", "user.password.changed", "user.password.recovered",
+        "user.registered", "user.registration.rolled_back"];
+    if (!actions.includes(action)) throw new Error("Acción de auditoría de usuario no válida.");
+    return transactEntity({ id, actorId, action, change, database, collection: "authUsers", allowEmptyRoot: false });
+}
+
+module.exports = {
+    isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
+    isRegistrationAuditEnabled,
+    transactTool, transactRolePermissions, transactAdminUser, MAX_ROOT_BYTES
+};

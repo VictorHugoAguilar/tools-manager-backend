@@ -5,9 +5,14 @@ const BATCH_SIZE = 50;
 const INTERVAL_MS = 5000;
 const EVENT_FIELDS = ["schemaVersion", "eventId", "action", "actorId", "targetId", "occurredAt"];
 const ROLE_FIELDS = ["permissionsBefore", "permissionsAfter"];
+const USER_ROLE_FIELDS = ["roleBefore", "roleAfter"];
+const USER_STATUS_FIELDS = ["activeBefore", "activeAfter"];
 
 function eventFields(event) {
-    return event?.action === "role.permissions.updated" ? [...EVENT_FIELDS, ...ROLE_FIELDS] : EVENT_FIELDS;
+    if (event?.action === "role.permissions.updated") return [...EVENT_FIELDS, ...ROLE_FIELDS];
+    if (event?.action === "user.role.updated") return [...EVENT_FIELDS, ...USER_ROLE_FIELDS];
+    if (event?.action === "user.status.updated") return [...EVENT_FIELDS, ...USER_STATUS_FIELDS];
+    return EVENT_FIELDS;
 }
 
 function validEvent(id, event) {
@@ -19,7 +24,11 @@ function validEvent(id, event) {
         typeof event.action === "string" && typeof event.actorId === "string" &&
         typeof event.targetId === "string" && typeof event.occurredAt === "string" &&
         (event.action !== "role.permissions.updated" ||
-            ROLE_FIELDS.every((key) => typeof event[key] === "string"));
+            ROLE_FIELDS.every((key) => typeof event[key] === "string")) &&
+        (event.action !== "user.role.updated" ||
+            USER_ROLE_FIELDS.every((key) => typeof event[key] === "string")) &&
+        (event.action !== "user.status.updated" ||
+            USER_STATUS_FIELDS.every((key) => typeof event[key] === "boolean"));
 }
 
 class AuditOutboxWorker {

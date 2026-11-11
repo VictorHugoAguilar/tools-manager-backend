@@ -59,7 +59,9 @@ const userController = {
         if (Object.hasOwn(req.body || {}, "firstName")) changes.firstName = validateName(req.body.firstName, "El nombre");
         if (Object.hasOwn(req.body || {}, "lastName")) changes.lastName = validateName(req.body.lastName, "El apellido");
         if (!Object.keys(changes).length) throw httpError("No hay cambios para guardar.", 400);
-        const profile = await updateProfile(req.authUser.id, changes);
+        const profile = await updateProfile(req.authUser.id, changes, {
+            self: true, actorId: req.authUser.id, sessionVersion: req.authUser.sessionVersion
+        });
         if (!profile) throw httpError("Usuario no encontrado.", 404);
         return res.json({ user: getPublicUser(await getProfileWithPermissions(req.authUser.id)) });
     }),
@@ -74,14 +76,18 @@ const userController = {
         if (!currentHash || !await verifyPassword(currentPassword, currentHash)) {
             throw httpError("La contraseña actual no es correcta.", 401);
         }
-        const updated = await updatePasswordHash(req.authUser.id, await hashPassword(newPassword));
+        const updated = await updatePasswordHash(req.authUser.id, await hashPassword(newPassword), undefined, {
+            self: true, actorId: req.authUser.id, sessionVersion: req.authUser.sessionVersion
+        });
         if (!updated) throw httpError("Usuario no encontrado.", 404);
         await issueSession(res, req.authUser.id);
         return res.json({ message: "La contraseña se ha actualizado correctamente." });
     }),
 
     uploadMyAvatar: handle(async (req, res) => {
-        const profile = await updateUserAvatar(req.authUser.id, req.file);
+        const profile = await updateUserAvatar(req.authUser.id, req.file, {
+            self: true, actorId: req.authUser.id, sessionVersion: req.authUser.sessionVersion
+        });
         return res.json({ user: getPublicUser(await getProfileWithPermissions(profile.id)) });
     }),
 
@@ -128,7 +134,8 @@ const userController = {
             uid,
             { firstName, lastName, email, isActive },
             roleId,
-            await hashPassword(password)
+            await hashPassword(password),
+            { admin: true, actorId: req.authUser.id }
         );
         const user = await getProfileWithPermissions(uid);
         return res.status(201).json({ user: getPublicUser(user) });
@@ -147,7 +154,7 @@ const userController = {
         if (Object.hasOwn(req.body || {}, "email")) changes.email = validateEmail(req.body.email);
         if (!Object.keys(changes).length) throw httpError("No hay cambios para guardar.", 400);
 
-        const updated = await updateProfileGuarded(req.params.id, changes);
+        const updated = await updateProfileGuarded(req.params.id, changes, { admin: true, actorId: req.authUser.id });
         if (!updated) throw httpError("Usuario no encontrado.", 404);
         return res.json({ user: getPublicUser(await getProfileWithPermissions(req.params.id)) });
     }),
@@ -158,7 +165,7 @@ const userController = {
         }
         const existing = await getProfile(req.params.id);
         if (!existing) return res.status(404).json({ message: "Usuario no encontrado." });
-        const removed = await updateProfileGuarded(req.params.id, {}, { delete: true });
+        const removed = await updateProfileGuarded(req.params.id, {}, { delete: true, admin: true, actorId: req.authUser.id });
         if (!removed) return res.status(404).json({ message: "Usuario no encontrado." });
         if (existing.profileImage) await deleteImageByUrl(existing.profileImage);
         return res.status(204).send();
@@ -174,7 +181,7 @@ const userController = {
         }
         const existing = await getProfile(req.params.id);
         if (!existing) return res.status(404).json({ message: "Usuario no encontrado." });
-        const updated = await updateProfileGuarded(req.params.id, { roleId });
+        const updated = await updateProfileGuarded(req.params.id, { roleId }, { admin: true, actorId: req.authUser.id });
         if (!updated) return res.status(404).json({ message: "Usuario no encontrado." });
         return res.json({ user: getPublicUser(await getProfileWithPermissions(req.params.id)) });
     }),
@@ -186,7 +193,7 @@ const userController = {
         if (req.params.id === req.authUser.id && !req.body.isActive) {
             throw httpError("No puedes desactivar tu propia cuenta.", 409);
         }
-        const updated = await updateProfileGuarded(req.params.id, { isActive: req.body.isActive });
+        const updated = await updateProfileGuarded(req.params.id, { isActive: req.body.isActive }, { admin: true, actorId: req.authUser.id });
         if (!updated) return res.status(404).json({ message: "Usuario no encontrado." });
         return res.json({ user: getPublicUser(await getProfileWithPermissions(req.params.id)) });
     }),
@@ -195,13 +202,15 @@ const userController = {
         const newPassword = validateNewPassword(req.body?.newPassword);
         const existing = await getProfile(req.params.id);
         if (!existing) return res.status(404).json({ message: "Usuario no encontrado." });
-        const updated = await updatePasswordHash(req.params.id, await hashPassword(newPassword));
+        const updated = await updatePasswordHash(req.params.id, await hashPassword(newPassword), undefined, {
+            admin: true, actorId: req.authUser.id
+        });
         if (!updated) throw httpError("Usuario no encontrado.", 404);
         return res.status(204).send();
     }),
 
     uploadAvatar: handle(async (req, res) => {
-        const profile = await updateUserAvatar(req.params.id, req.file);
+        const profile = await updateUserAvatar(req.params.id, req.file, { admin: true, actorId: req.authUser.id });
         return res.json({ user: getPublicUser(await getProfileWithPermissions(profile.id)) });
     }),
 

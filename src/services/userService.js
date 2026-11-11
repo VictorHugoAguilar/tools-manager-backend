@@ -1,5 +1,8 @@
 const { getAdminDatabase } = require("../config/firebaseAdmin");
-const { isRoleAuditEnabled, transactRolePermissions } = require("../audit/businessOutbox");
+const {
+    isRoleAuditEnabled, transactRolePermissions, isUserAuditEnabled, isSelfUserAuditEnabled,
+    isRegistrationAuditEnabled, transactAdminUser
+} = require("../audit/businessOutbox");
 
 const DEFAULT_ROLES = {
     admin: {
@@ -138,7 +141,7 @@ async function getProfileWithPermissions(uid) {
     };
 }
 
-async function createProfile(uid, input, roleId = "user", passwordHash) {
+async function createProfile(uid, input, roleId = "user", passwordHash, options = {}) {
     const now = new Date().toISOString();
     const profile = {
         firstName: input.firstName.trim(),
@@ -152,6 +155,23 @@ async function createProfile(uid, input, roleId = "user", passwordHash) {
         sessionVersion: 0,
         ...(passwordHash ? { passwordHash } : {})
     };
+
+    if ((options.admin && isUserAuditEnabled()) || (options.registration && isRegistrationAuditEnabled())) {
+        const created = await transactAdminUser({
+            id: uid, actorId: options.actorId, action: options.registration ? "user.registered" : "user.created",
+            change: (current, profiles, root) => {
+                if (current) throw Object.assign(new Error("La cuenta ya existe."), { statusCode: 409 });
+                if (!root.authRoles?.[roleId]) throw Object.assign(new Error("El rol indicado no existe."), { statusCode: 400 });
+                if (Object.values(profiles).some((existing) =>
+                    existing?.email?.trim().toLowerCase() === profile.email)) {
+                    throw Object.assign(new Error("Ya existe una cuenta con ese correo."), { statusCode: 409 });
+                }
+                return { value: profile, result: normalizeProfile(uid, profile) };
+            }
+        });
+        if (!created) throw Object.assign(new Error("No se pudo confirmar la creación del usuario."), { statusCode: 503 });
+        return created;
+    }
 
     let conflict;
     const result = await getProfilesRef().transaction((profiles) => {
@@ -179,11 +199,46 @@ async function createProfile(uid, input, roleId = "user", passwordHash) {
     return normalizeProfile(uid, profile);
 }
 
-async function deleteProfileForRollback(uid) {
+async function deleteProfileForRollback(uid, options = {}) {
+    if (options.registration && isRegistrationAuditEnabled()) {
+        return transactAdminUser({
+            id: uid, actorId: options.actorId, action: "user.registration.rolled_back",
+            change: (current) => current ? { value: null, result: true } : null
+        });
+    }
     await getProfilesRef().child(uid).remove();
 }
 
-async function updateProfile(uid, changes) {
+function assertSelfSession(uid, current, options) {
+    if (options.actorId !== uid || !Number.isSafeInteger(options.sessionVersion) || options.sessionVersion < 0) {
+        throw new Error("Contexto de auditoría de usuario no válido.");
+    }
+    if (current.isActive === false || (Number(current.sessionVersion) || 0) !== options.sessionVersion) {
+        throw Object.assign(new Error("La sesión ha cambiado o ha caducado. Inicia sesión de nuevo."), { statusCode: 401 });
+    }
+}
+
+async function updateProfile(uid, changes, options = {}) {
+    if ((options.self && isSelfUserAuditEnabled()) ||
+        (options.registration && isRegistrationAuditEnabled())) {
+        const keys = Object.keys(changes);
+        const isAvatar = keys.length === 1 && keys[0] === "profileImage";
+        if (!keys.length || (!isAvatar && keys.some((key) => !["firstName", "lastName"].includes(key)))) {
+            throw new Error("Cambios de perfil auditados no válidos.");
+        }
+        return transactAdminUser({
+            id: uid, actorId: options.actorId, action: isAvatar ? "user.avatar.updated" : "user.profile.updated",
+            change: (current) => {
+                if (!current) return null;
+                assertSelfSession(uid, current, options);
+                const updated = { ...current, ...changes, updatedAt: new Date().toISOString() };
+                return { value: updated, result: normalizeProfile(uid, updated) };
+            }
+        });
+    }
+    if (options.admin && isUserAuditEnabled()) {
+        return updateProfileGuarded(uid, changes, { ...options, action: "user.avatar.updated" });
+    }
     const ref = getProfilesRef().child(uid);
     const current = await ref.get();
     if (!current.exists()) return null;
@@ -197,7 +252,23 @@ async function updateProfile(uid, changes) {
     return updated.exists() ? normalizeProfile(uid, updated.val()) : null;
 }
 
-async function updatePasswordHash(uid, passwordHash, expectedSessionVersion) {
+async function updatePasswordHash(uid, passwordHash, expectedSessionVersion, options = {}) {
+    if ((options.admin && isUserAuditEnabled()) || (options.self && isSelfUserAuditEnabled())) {
+        return transactAdminUser({
+            id: uid, actorId: options.actorId, action: options.self ? "user.password.changed" : "user.password.reset",
+            change: (current) => {
+                if (!current) return null;
+                if (options.self) assertSelfSession(uid, current, options);
+                if (expectedSessionVersion !== undefined &&
+                    (Number(current.sessionVersion) || 0) !== expectedSessionVersion) return null;
+                const updated = {
+                    ...current, passwordHash, sessionVersion: (Number(current.sessionVersion) || 0) + 1,
+                    updatedAt: new Date().toISOString()
+                };
+                return { value: updated, result: normalizeProfile(uid, updated) };
+            }
+        });
+    }
     const ref = getProfilesRef();
     let stalePasswordReset = false;
     const result = await ref.transaction((profiles) => {
@@ -223,6 +294,40 @@ async function updatePasswordHash(uid, passwordHash, expectedSessionVersion) {
 }
 
 async function updateProfileGuarded(uid, changes, options = {}) {
+    if (options.admin && isUserAuditEnabled()) {
+        return transactAdminUser({
+            id: uid, actorId: options.actorId,
+            action: options.delete ? "user.deleted" : options.action ||
+                (Object.hasOwn(changes, "roleId") ? "user.role.updated" :
+                    Object.hasOwn(changes, "isActive") ? "user.status.updated" : "user.updated"),
+            change: (current, profiles, root) => {
+                if (!current) return null;
+                if (removesLastActiveAdmin(profiles, uid, changes, options)) {
+                    throw Object.assign(new Error("No se puede dejar el sistema sin administradores activos."), { statusCode: 409 });
+                }
+                if (changes.email && Object.entries(profiles).some(([id, profile]) =>
+                    id !== uid && profile?.email?.trim().toLowerCase() === changes.email.trim().toLowerCase())) {
+                    throw Object.assign(new Error("Ya existe una cuenta con ese correo."), { statusCode: 409 });
+                }
+                if (changes.roleId && !root.authRoles?.[changes.roleId]) {
+                    throw Object.assign(new Error("El rol indicado no existe."), { statusCode: 400 });
+                }
+                if (options.delete) return { value: null, result: true };
+                const updated = {
+                    ...current, ...changes,
+                    ...(Object.hasOwn(changes, "isActive") && changes.isActive !== (current.isActive !== false)
+                        ? { sessionVersion: (Number(current.sessionVersion) || 0) + 1 } : {}),
+                    updatedAt: new Date().toISOString()
+                };
+                const auditDetails = Object.hasOwn(changes, "roleId")
+                    ? { roleBefore: current.roleId || "user", roleAfter: changes.roleId }
+                    : Object.hasOwn(changes, "isActive")
+                        ? { activeBefore: current.isActive !== false, activeAfter: changes.isActive }
+                        : undefined;
+                return { value: updated, result: normalizeProfile(uid, updated), auditDetails };
+            }
+        });
+    }
     if (!options.delete && !Object.hasOwn(changes, "roleId") && !Object.hasOwn(changes, "isActive")) {
         const existing = await getProfile(uid);
         if (!existing) return null;

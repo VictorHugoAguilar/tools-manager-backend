@@ -5,7 +5,10 @@ const { initializeAuthData } = require("./services/userService");
 const { createApp } = require("./app");
 const { telemetry } = require("./telemetry/telemetry");
 const { AuditOutboxWorker } = require("./audit/outboxWorker");
-const { isToolAuditEnabled, isRoleAuditEnabled } = require("./audit/businessOutbox");
+const {
+    isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
+    isRegistrationAuditEnabled
+} = require("./audit/businessOutbox");
 
 const PORT = process.env.PORT || 3000;
 const app = createApp();
@@ -17,7 +20,10 @@ async function startServer() {
         await initializeAuthData();
         return app.listen(PORT, () => {
             telemetry.start();
-            if (isToolAuditEnabled() || isRoleAuditEnabled()) auditWorker.start();
+            if (isToolAuditEnabled() || isRoleAuditEnabled() || isUserAuditEnabled() ||
+                isSelfUserAuditEnabled() || isRecoveryAuditEnabled() || isRegistrationAuditEnabled()) {
+                auditWorker.start();
+            }
             console.log(`Server running on http://localhost:${PORT}`);
         });
     } catch (error) {

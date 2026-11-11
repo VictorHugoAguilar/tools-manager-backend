@@ -16,8 +16,10 @@ const {
     createSession,
     deleteSession,
     consumePasswordReset,
+    completeAuditedPasswordReset,
     storePasswordReset
 } = require("../services/authSessionService");
+const { isRecoveryAuditEnabled } = require("../audit/businessOutbox");
 const { hashPassword, verifyPassword } = require("../services/passwordService");
 const { sendPasswordResetEmail } = require("../services/emailService");
 const { updateUserAvatar } = require("../services/userAvatarService");
@@ -188,16 +190,18 @@ const controller = {
         let profileCreated = false;
         try {
             const passwordHash = await hashPassword(password);
-            await createProfile(uid, profile, "user", passwordHash);
+            await createProfile(uid, profile, "user", passwordHash, { registration: true, actorId: uid });
             profileCreated = true;
-            if (req.file) await updateUserAvatar(uid, req.file);
+            if (req.file) await updateUserAvatar(uid, req.file, {
+                registration: true, actorId: uid, sessionVersion: 0
+            });
             const user = await getProfileWithPermissions(uid);
             await issueSession(res, uid);
             return res.status(201).json({ user: getPublicUser(user) });
         } catch (error) {
             if (profileCreated) {
                 try {
-                    await deleteProfileForRollback(uid);
+                    await deleteProfileForRollback(uid, { registration: true, actorId: uid });
                 } catch (cleanupError) {
                     console.error("Could not remove incomplete user profile", cleanupError);
                 }
@@ -246,6 +250,11 @@ const controller = {
                 throw createHttpError("El enlace de recuperación no es válido o ha caducado.", 400);
             }
             const password = validateNewPassword(req.body?.password);
+            if (isRecoveryAuditEnabled()) {
+                const completed = await completeAuditedPasswordReset(token, await hashPassword(password));
+                if (!completed) throw createHttpError("El enlace de recuperación no es válido o ha caducado.", 400);
+                return res.json({ message: "La contraseña se ha actualizado. Ya puedes iniciar sesión." });
+            }
             const reset = await consumePasswordReset(token);
             if (!reset) throw createHttpError("El enlace de recuperación no es válido o ha caducado.", 400);
             const profile = await updatePasswordHash(
