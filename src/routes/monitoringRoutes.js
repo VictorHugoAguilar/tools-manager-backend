@@ -107,25 +107,31 @@ function createMonitoringRouter(options = {}) {
                 console.error("No se pudo consultar el recuento de eventos por nivel.", error);
             }
             let frontendActivity = null;
-            try {
+            {
                 const since = Timestamp.fromMillis(now.getTime() - periods[period]);
-                const base = () => db.collection("monitoringEvents")
+                const range = () => db.collection("monitoringEvents")
                     .where("environment", "==", manager.environment)
-                    .where("service", "==", "frontend");
-                const [total, errors, last] = await Promise.all([
-                    base().where("receivedAt", ">=", since).where("receivedAt", "<=", Timestamp.fromDate(now)).count().get(),
-                    base().where("level", "==", "ERROR").where("receivedAt", ">=", since)
-                        .where("receivedAt", "<=", Timestamp.fromDate(now)).count().get(),
-                    base().where("receivedAt", ">=", since).where("receivedAt", "<=", Timestamp.fromDate(now))
-                        .orderBy("receivedAt", "desc").limit(1).get()
+                    .where("service", "==", "frontend")
+                    .where("receivedAt", ">=", since)
+                    .where("receivedAt", "<=", Timestamp.fromDate(now));
+                const [total, errors, last] = await Promise.allSettled([
+                    (async () => range().count().get())(),
+                    (async () => range().where("level", "==", "ERROR").count().get())(),
+                    (async () => range().orderBy("receivedAt", "desc").limit(1).get())()
                 ]);
-                frontendActivity = {
-                    events: total.data().count,
-                    errors: errors.data().count,
-                    lastEventAt: last.docs[0]?.data().receivedAt?.toDate().toISOString() ?? null
-                };
-            } catch (error) {
-                console.error("No se pudo consultar la actividad del frontend.", error);
+                for (const [name, result] of [["total", total], ["errores", errors], ["último evento", last]]) {
+                    if (result.status === "rejected") {
+                        console.error(`No se pudo consultar ${name} de la actividad del frontend.`, result.reason?.message ?? result.reason);
+                    }
+                }
+                if (total.status === "fulfilled") {
+                    frontendActivity = {
+                        events: total.value.data().count,
+                        errors: errors.status === "fulfilled" ? errors.value.data().count : null,
+                        lastEventAt: last.status === "fulfilled"
+                            ? last.value.docs[0]?.data().receivedAt?.toDate().toISOString() ?? null : null
+                    };
+                }
             }
             res.set("Cache-Control", "no-store");
             return res.json({
