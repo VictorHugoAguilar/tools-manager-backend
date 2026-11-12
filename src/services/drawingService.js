@@ -443,6 +443,66 @@ async function deleteDocument(documentId, userId) {
 }
 
 async function duplicateDocument(documentId, userId) {
+    if (isDrawingDocumentAuditEnabled()) {
+        validDrawingKey(documentId);
+        validDrawingKey(userId);
+        const duplicateId = randomUUID();
+        const copyIds = new Map();
+        const now = new Date().toISOString();
+        return transactDrawingDocument({ targetId: duplicateId, actorId: userId, action: "drawing.document.duplicated",
+            change: (data) => {
+                const source = auditedOwnerDocument(data, documentId, userId);
+                if (!source) return null;
+                if (Object.hasOwn(data.documents || {}, duplicateId)) {
+                    throw serviceError("La pizarra ya existe.", 409);
+                }
+                const pages = Object.keys(data.pagesByDocument?.[documentId] || {})
+                    .map((id) => ({ id, page: data.pages?.[id] }))
+                    .filter(({ page }) => page && !page.deletedAt)
+                    .sort((left, right) => left.page.position - right.page.position);
+                const copiedPages = [];
+                const index = {};
+                const userPages = { ...(data.pagesByUser?.[userId] || {}) };
+                const allPages = { ...(data.pages || {}) };
+                const snapshots = { ...(data.snapshots || {}) };
+                const versions = { ...(data.versionsByPage || {}) };
+                for (const [position, { id, page: original }] of pages.entries()) {
+                    if (original.documentId !== documentId) {
+                        throw serviceError("El índice de páginas de la pizarra no es válido.", 409);
+                    }
+                    if (!copyIds.has(id)) copyIds.set(id, { pageId: randomUUID(), snapshotId: randomUUID() });
+                    const copy = copyIds.get(id);
+                    if (Object.hasOwn(allPages, copy.pageId) || Object.hasOwn(snapshots, copy.snapshotId)) {
+                        throw serviceError("La página ya existe.", 409);
+                    }
+                    const { snapshot, contentHash } = auditedPageSnapshot(data, original, id);
+                    const page = { documentId: duplicateId, name: original.name, position, createdAt: now,
+                        updatedAt: now, version: 0, schemaVersion: 1, snapshotId: copy.snapshotId };
+                    allPages[copy.pageId] = page;
+                    index[copy.pageId] = true;
+                    userPages[copy.pageId] = true;
+                    snapshots[copy.snapshotId] = { pageId: copy.pageId, version: 0, schemaVersion: 1,
+                        snapshot, contentHash, createdAt: now, createdByUserId: userId };
+                    versions[copy.pageId] = { 0: { snapshotId: copy.snapshotId, contentHash,
+                        createdAt: now, createdByUserId: userId } };
+                    copiedPages.push({ id: copy.pageId, ...page });
+                }
+                const document = { name: `${source.name} (copia)`.slice(0, 120), description: source.description,
+                    ownerUserId: userId, isArchived: false, createdAt: now, updatedAt: now, deletedAt: null,
+                    version: 1, pageCount: copiedPages.length, nextPagePosition: copiedPages.length,
+                    firstPageId: copiedPages[0]?.id ?? null };
+                data.documents = { ...(data.documents || {}), [duplicateId]: document };
+                data.documentsByOwner = { ...(data.documentsByOwner || {}), [userId]: {
+                    ...(data.documentsByOwner?.[userId] || {}), [duplicateId]: true
+                } };
+                data.pages = allPages;
+                data.pagesByDocument = { ...(data.pagesByDocument || {}), [duplicateId]: index };
+                data.pagesByUser = { ...(data.pagesByUser || {}), [userId]: userPages };
+                data.snapshots = snapshots;
+                data.versionsByPage = versions;
+                return { value: data, result: { id: duplicateId, ...document, accessRole: "Owner", pages: copiedPages } };
+            } });
+    }
     const source = await getDocumentForUser(documentId, userId, "Owner");
     if (!source) return null;
     source.pages = await getPagesForDocument(documentId);
@@ -562,6 +622,19 @@ function validDrawingKey(id) {
     }
 }
 
+function auditedPageSnapshot(data, page, pageId) {
+    const collaborative = data.collaborationStates?.[page.documentId]?.[pageId];
+    const stored = data.snapshots?.[page.snapshotId];
+    const snapshot = collaborative?.snapshot
+        ? normalizeStoredSnapshot(collaborative.snapshot)
+        : stored ? normalizeSnapshotRecord(stored) : initialSnapshot();
+    if (!snapshot) throw serviceError("La página contiene un snapshot guardado no válido.", 500);
+    const contentHash = collaborative?.snapshot
+        ? (collaborative.contentHash ?? "")
+        : stored ? (stored.contentHash ?? createHash("sha256").update(JSON.stringify(snapshot)).digest("hex")) : "";
+    return { snapshot, contentHash };
+}
+
 async function createPage(documentId, payload, userId) {
     if (isDrawingPageAuditEnabled()) {
         validDrawingKey(documentId);
@@ -648,6 +721,46 @@ async function createPage(documentId, payload, userId) {
 }
 
 async function duplicatePage(pageId, userId) {
+    if (isDrawingPageAuditEnabled()) {
+        validDrawingKey(pageId);
+        validDrawingKey(userId);
+        const pageIdCopy = randomUUID();
+        const snapshotId = randomUUID();
+        const now = new Date().toISOString();
+        return transactDrawingPage({ targetId: pageIdCopy, actorId: userId, action: "drawing.page.duplicated",
+            change: (data) => {
+                const access = auditedPage(data, pageId, userId);
+                if (!access) return null;
+                const { page: source, document } = access;
+                const count = Number(document.pageCount) || 0;
+                if (count >= 100) throw serviceError("La pizarra no puede tener más de 100 páginas.", 409);
+                if (Object.hasOwn(data.pages || {}, pageIdCopy) || Object.hasOwn(data.snapshots || {}, snapshotId)) {
+                    throw serviceError("La página ya existe.", 409);
+                }
+                const { snapshot, contentHash } = auditedPageSnapshot(data, source, pageId);
+                const position = Number(document.nextPagePosition) || count;
+                const page = { documentId: source.documentId, name: `${source.name} (copia)`.slice(0, 120),
+                    position, createdAt: now, updatedAt: now, version: 0,
+                    schemaVersion: source.schemaVersion, snapshotId };
+                Object.assign(document, { pageCount: count + 1, nextPagePosition: position + 1,
+                    version: (Number(document.version) || 0) + 1, updatedAt: now });
+                data.pages = { ...(data.pages || {}), [pageIdCopy]: page };
+                data.pagesByDocument = { ...(data.pagesByDocument || {}), [source.documentId]: {
+                    ...(data.pagesByDocument?.[source.documentId] || {}), [pageIdCopy]: true
+                } };
+                data.pagesByUser = { ...(data.pagesByUser || {}), [userId]: {
+                    ...(data.pagesByUser?.[userId] || {}), [pageIdCopy]: true
+                } };
+                data.snapshots = { ...(data.snapshots || {}), [snapshotId]: {
+                    pageId: pageIdCopy, version: 0, schemaVersion: source.schemaVersion, snapshot, contentHash,
+                    createdAt: now, createdByUserId: userId
+                } };
+                data.versionsByPage = { ...(data.versionsByPage || {}), [pageIdCopy]: {
+                    0: { snapshotId, contentHash, createdAt: now, createdByUserId: userId }
+                } };
+                return { value: data, result: { id: pageIdCopy, ...page } };
+            } });
+    }
     const source = await getPageForUser(pageId, userId, "Editor");
     if (!source) return null;
     const original = await getSnapshot(pageId, userId);
@@ -1029,6 +1142,63 @@ async function getVersion(pageId, version, userId, shareToken) {
 }
 
 async function restoreVersion(pageId, version, userId) {
+    if (isDrawingPageAuditEnabled()) {
+        validDrawingKey(pageId);
+        validDrawingKey(userId);
+        const pageSnapshot = await drawingRef(`pages/${pageId}`).get();
+        const initialPage = pageSnapshot.val();
+        if (!initialPage || initialPage.deletedAt) return null;
+        const normalizedVersion = String(version);
+        if (!/^(0|[1-9]\d*)$/.test(normalizedVersion) || !Number.isSafeInteger(Number(normalizedVersion))) {
+            throw serviceError("La versión solicitada no es válida.");
+        }
+        const versionNumber = Number(normalizedVersion);
+        const snapshotId = randomUUID();
+        const now = new Date().toISOString();
+        return transactDrawingPage({ targetId: pageId, actorId: userId, action: "drawing.version.restored",
+            change: (data) => {
+                const access = auditedPage(data, pageId, userId);
+                if (!access) return null;
+                const { page, document } = access;
+                if (page.documentId !== initialPage.documentId || page.version !== initialPage.version) {
+                    throw serviceError("La pizarra ha cambiado desde que la abriste. Recarga para conservar los cambios más recientes.", 409);
+                }
+                if (data.collaborationStates?.[page.documentId]?.[pageId] != null) {
+                    throw serviceError("Esta página se guarda mediante la sesión colaborativa. Recarga antes de guardar una copia completa.", 409);
+                }
+                let stored = versionNumber === page.version ? data.snapshots?.[page.snapshotId] : null;
+                if (!stored) {
+                    const entry = data.versionsByPage?.[pageId]?.[versionNumber];
+                    stored = entry ? data.snapshots?.[entry.snapshotId] : null;
+                }
+                if (!stored) return null;
+                const snapshot = normalizeSnapshotRecord(stored);
+                if (!snapshot) throw serviceError("La versión contiene un snapshot guardado no válido.", 500);
+                const validated = validateSnapshot({ schemaVersion: stored.schemaVersion,
+                    expectedVersion: page.version, snapshot });
+                if (Object.hasOwn(data.snapshots || {}, snapshotId)) {
+                    throw serviceError("El snapshot ya existe.", 409);
+                }
+                const nextVersion = page.version + 1;
+                if (!Number.isSafeInteger(nextVersion)) throw serviceError("La versión de la página no es válida.", 409);
+                const versions = data.versionsByPage?.[pageId] || {};
+                if (Object.hasOwn(versions, nextVersion)) throw serviceError("La versión ya existe.", 409);
+                data.snapshots = { ...(data.snapshots || {}), [snapshotId]: {
+                    pageId, version: nextVersion, schemaVersion: validated.schemaVersion,
+                    snapshot: validated.snapshot, contentHash: validated.contentHash,
+                    createdAt: now, createdByUserId: userId
+                } };
+                data.versionsByPage = { ...(data.versionsByPage || {}), [pageId]: {
+                    ...versions, [nextVersion]: { snapshotId, contentHash: validated.contentHash,
+                        createdAt: now, createdByUserId: userId }
+                } };
+                Object.assign(page, { version: nextVersion, schemaVersion: validated.schemaVersion,
+                    snapshotId, updatedAt: now });
+                document.updatedAt = now;
+                return { value: data, result: { pageId, version: nextVersion,
+                    schemaVersion: validated.schemaVersion, contentHash: validated.contentHash, updatedAt: now } };
+            } });
+    }
     const historical = await getVersion(pageId, version, userId);
     if (!historical) return null;
     const page = await getPageForUser(pageId, userId, "Editor");

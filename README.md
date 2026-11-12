@@ -122,9 +122,9 @@ auditan hitos y cambios de acceso, no cada actualización WebSocket.
 | Lista de tareas: recordatorios manuales | Auditoría experimental `AUDIT_TODO_ITEMS_ENABLED`: `todo.reminder.created/updated/deleted`. | Validar en Firebase y coordinar con la edición de tareas y el procesador automático antes de habilitar. |
 | Lista de tareas: adjuntos | Sin auditoría durable específica. | Auditoría `todo.attachment.created/deleted`. No guardar contenido, texto, nombres ni URL. |
 | Lista de tareas: recurrencia, envío de recordatorios y notificaciones | La siguiente ocurrencia creada al completar se confirma con `todo.item.completed`; no existe evento independiente de recurrencia ni auditoría de entrega automática. | Diseñar eventos idempotentes `todo.recurrence.created` y `todo.reminder.delivered` para cambios de negocio confirmados por el sistema; separar fallos de entrega como telemetría `todo.reminder.delivery.failed`. Lectura de notificaciones y marca de leída: agregados, sin auditoría durable. El actor automático debe ser una identidad de sistema explícita, no un usuario inventado. |
-| Dibujar: documentos | Auditoría experimental `AUDIT_DRAWING_DOCUMENTS_ENABLED`: `drawing.document.created/updated/deleted/archived/restored`. | Falta auditar la duplicación y validar concurrencia con páginas y colaboración. |
-| Dibujar: páginas y restauración | Auditoría experimental `AUDIT_DRAWING_PAGES_ENABLED`: `drawing.page.created/updated/deleted/reordered`. | Faltan la duplicación de páginas y la restauración de versiones. Validar las operaciones y concurrencia con colaboración. |
-| Dibujar: snapshots, versiones, preferencias y recursos | Sin auditoría durable específica. | Auditar hitos de versión y carga/eliminación de recursos con `drawing.version.created` y `drawing.asset.created/deleted`, sin contenido ni URL. No auditar cada actualización colaborativa ni cada guardado automático como cambio individual; medir actividad agregada. Preferencias personales: agregados. Distinguir restauración explícita de guardados automáticos. |
+| Dibujar: documentos | Auditoría experimental `AUDIT_DRAWING_DOCUMENTS_ENABLED`: `drawing.document.created/updated/deleted/archived/restored/duplicated`. | Validar concurrencia con páginas y colaboración en Firebase. |
+| Dibujar: páginas y restauración | Auditoría experimental `AUDIT_DRAWING_PAGES_ENABLED`: `drawing.page.created/updated/deleted/reordered/duplicated` y `drawing.version.restored`. | Validar las operaciones y concurrencia con colaboración en Firebase. |
+| Dibujar: snapshots, versiones, preferencias y recursos | La restauración explícita no colaborativa se audita con `drawing.version.restored`; los demás hitos y recursos no tienen auditoría durable específica. | Auditar hitos de versión y carga/eliminación de recursos con `drawing.version.created` y `drawing.asset.created/deleted`, sin contenido ni URL. No auditar cada actualización colaborativa ni cada guardado automático como cambio individual; medir actividad agregada. Preferencias personales: agregados. |
 | Dibujar: invitaciones, permisos y enlaces | Sin auditoría durable específica. | Auditoría `drawing.invitation.created/accepted/declined/cancelled`, `drawing.permission.updated/revoked` y `drawing.share_link.created/revoked`; identificar recurso y actor, sin tokens ni enlaces. Consultas y resolución de enlaces: telemetría selectiva sin secretos. |
 | WebSocket de colaboración | Eventos experimentales de apertura, cierre, fallo de autenticación y carga/escritura; agregados de aperturas, cierres y actualizaciones. | Conservar los eventos existentes, añadir solo medidas fiables pendientes y probar correlación sin guardar mensajes, contenido o tokens. |
 | Identidad: registro, reversión, recuperación, perfil y usuarios administrados | Auditoría experimental con banderas independientes para registro, recuperación, perfil y administración de usuarios; ver descripción de banderas más abajo. | Verificar cobertura de cada ruta y concurrencia. Registrar identificadores y tipos de acción, no contraseñas, hashes, tokens, nombres, correos ni imágenes. El actor de recuperación representa posesión del enlace, no una sesión. |
@@ -309,18 +309,19 @@ estas relaciones y validar Firebase, las condiciones de carrera y el
 aislamiento de entornos. Todas las instancias deben ejecutar código compatible.
 
 `AUDIT_DRAWING_DOCUMENTS_ENABLED=true` habilita experimentalmente la auditoría
-de alta, edición, archivo, restauración y eliminación de documentos de dibujo.
+de alta, edición, archivo, restauración, eliminación y duplicación de documentos de dibujo.
 El documento, sus índices iniciales y el evento de alta se confirman juntos;
 el propietario se verifica en la transacción para el resto de operaciones. Los
-eventos no contienen nombres, contenido ni enlaces. La duplicación de documentos,
-versiones, recursos, invitaciones y permisos aún no están auditados; las páginas
+eventos no contienen nombres, contenido ni enlaces. Versiones, recursos,
+invitaciones y permisos aún no están auditados; las páginas
 se controlan con la bandera independiente descrita a continuación.
 
 `AUDIT_DRAWING_PAGES_ENABLED=true` habilita experimentalmente la auditoría de
-alta, edición, eliminación y ordenación de páginas. El permiso de propietario o
+alta, edición, eliminación, ordenación y duplicación de páginas y la restauración
+explícita de versiones no colaborativas. El permiso de propietario o
 editor, el límite de páginas y las referencias se verifican en la transacción
 junto con el cambio y el evento. Los eventos no contienen nombres ni contenido;
-la duplicación de páginas y la restauración de versiones aún no están auditadas.
+la restauración colaborativa sigue sin estar disponible mediante este endpoint.
 
 No habilitar estas banderas hasta completar y validar las operaciones
 relacionadas, el aislamiento de entornos y las transacciones en Firebase. Todos

@@ -24,8 +24,9 @@ const HISTORY_ACTIONS = {
         ...changes("todo.reminder", ["created", "updated", "deleted"])
     ],
     drawing: [
-        ...changes("drawing.document", ["created", "updated", "archived", "restored", "deleted"]),
-        ...changes("drawing.page", ["created", "updated", "deleted", "reordered"])
+        ...changes("drawing.document", ["created", "updated", "archived", "restored", "deleted", "duplicated"]),
+        ...changes("drawing.page", ["created", "updated", "deleted", "reordered", "duplicated"]),
+        "drawing.version.restored"
     ],
     catalogs: ["technician", "location", "tool_type", "tag"]
         .flatMap((prefix) => changes(prefix, ["created", "updated", "deleted"])),

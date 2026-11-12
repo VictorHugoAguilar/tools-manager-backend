@@ -133,6 +133,209 @@ test("label audit is disabled by default and enabled explicitly", () => {
     }
 });
 
+test("duplicating a drawing page atomically copies the latest snapshot and audits only the new ID", async () => {
+    const snapshot = { objects: [{ id: "private-content", type: "rect", x: 1, y: 2 }] };
+    const h = harness({
+        drawing: {
+            documents: { doc: { ownerUserId: "owner", pageCount: 1, nextPagePosition: 1, version: 1 } },
+            pages: { page: { documentId: "doc", name: "private-name", version: 2, schemaVersion: 1, snapshotId: "old" } },
+            pagesByDocument: { doc: { page: true } },
+            snapshots: { old: { snapshot: { objects: [] }, contentHash: "old" } },
+            collaborationStates: { doc: { page: { snapshot, contentHash: "current" } } }
+        }
+    });
+    const copy = await h.drawing.duplicatePage("page", "owner");
+    const data = h.root.drawing;
+    assert.equal(copy.name, "private-name (copia)");
+    assert.equal(copy.position, 1);
+    assert.equal(data.documents.doc.pageCount, 2);
+    assert.equal(data.pagesByDocument.doc[copy.id], true);
+    assert.equal(data.pagesByUser.owner[copy.id], true);
+    assert.deepEqual(data.snapshots[copy.snapshotId].snapshot, snapshot);
+    assert.equal(data.snapshots[copy.snapshotId].contentHash, "current");
+    const [event] = Object.values(h.root.auditOutbox);
+    assert.equal(event.action, "drawing.page.duplicated");
+    assert.equal(event.targetId, copy.id);
+    assert.doesNotMatch(JSON.stringify(event), /private-content|private-name/);
+});
+
+test("page duplication rechecks access and source on transaction retry and fails closed", async () => {
+    const make = () => harness({
+        drawing: {
+            documents: { doc: { ownerUserId: "owner", pageCount: 1 } },
+            access: { doc: { permissions: { editor: { role: "Editor", status: "Active" } } } },
+            pages: { page: { documentId: "doc", name: "Page", version: 0, schemaVersion: 1, snapshotId: "old" } }
+        }
+    });
+    const h = make();
+    h.retry((root) => { root.drawing.access.doc.permissions.editor.status = "Revoked"; });
+    await assert.rejects(h.drawing.duplicatePage("page", "editor"), { statusCode: 403 });
+    assert.equal(h.root.auditOutbox, undefined);
+    assert.equal(Object.keys(h.root.drawing.pages).length, 1);
+    const deleted = make();
+    deleted.retry((root) => { root.drawing.pages.page.deletedAt = "deleted"; });
+    assert.equal(await deleted.drawing.duplicatePage("page", "editor"), null);
+    assert.equal(deleted.root.auditOutbox, undefined);
+    const failed = make();
+    failed.fail();
+    await assert.rejects(failed.drawing.duplicatePage("page", "owner"), /database unavailable/);
+    assert.equal(failed.root.auditOutbox, undefined);
+    assert.equal(Object.keys(failed.root.drawing.pages).length, 1);
+});
+
+test("document duplication atomically copies ordered pages and current collaborative state", async () => {
+    const snapshot = { objects: [{ id: "private-shape", type: "rect", x: 1, y: 2 }] };
+    const h = harness({
+        drawing: {
+            documents: { doc: { ownerUserId: "owner", name: "private-name", description: "private-description",
+                pageCount: 2, nextPagePosition: 2, version: 1 } },
+            pages: {
+                first: { documentId: "doc", name: "First", position: 0, snapshotId: "old" },
+                second: { documentId: "doc", name: "Second", position: 1, snapshotId: "secondSnapshot" }
+            },
+            pagesByDocument: { doc: { second: true, first: true } },
+            snapshots: {
+                old: { snapshot: { objects: [] }, contentHash: "old" },
+                secondSnapshot: { snapshot: { objects: [] }, contentHash: "second" }
+            },
+            collaborationStates: { doc: { first: { snapshot, contentHash: "current" } } }
+        }
+    });
+    const copy = await h.drawing.duplicateDocument("doc", "owner");
+    const data = h.root.drawing;
+    assert.equal(copy.accessRole, "Owner");
+    assert.equal(copy.name, "private-name (copia)");
+    assert.deepEqual(copy.pages.map((page) => page.name), ["First", "Second"]);
+    assert.equal(data.documents[copy.id].firstPageId, copy.pages[0].id);
+    assert.equal(data.documentsByOwner.owner[copy.id], true);
+    assert.deepEqual(data.snapshots[copy.pages[0].snapshotId].snapshot, snapshot);
+    assert.equal(data.snapshots[copy.pages[0].snapshotId].contentHash, "current");
+    for (const page of copy.pages) {
+        assert.equal(data.pagesByDocument[copy.id][page.id], true);
+        assert.equal(data.pagesByUser.owner[page.id], true);
+        assert.equal(data.versionsByPage[page.id][0].snapshotId, page.snapshotId);
+    }
+    const [event] = Object.values(h.root.auditOutbox);
+    assert.equal(event.action, "drawing.document.duplicated");
+    assert.equal(event.targetId, copy.id);
+    assert.doesNotMatch(JSON.stringify(event), /private-name|private-description|private-shape/);
+    const published = [];
+    const worker = new AuditOutboxWorker({ getRealtimeDatabase: () => h.database, getFirestoreDatabase: () => ({
+        collection: () => ({ doc: (id) => ({ create: async (record) => published.push({ id, record }) }) })
+    }) });
+    await worker.flush();
+    assert.equal(published[0].record.action, "drawing.document.duplicated");
+    assert.deepEqual(h.root.auditOutbox, {});
+});
+
+test("document duplication rechecks owner, source pages and storage failures before committing", async () => {
+    const make = () => harness({
+        drawing: {
+            documents: { doc: { ownerUserId: "owner", name: "Doc", description: "", pageCount: 1 } },
+            pages: { page: { documentId: "doc", name: "Page", position: 0, snapshotId: "old" } },
+            pagesByDocument: { doc: { page: true } }
+        }
+    });
+    const lost = make();
+    lost.retry((root) => { root.drawing.documents.doc.ownerUserId = "other"; });
+    await assert.rejects(lost.drawing.duplicateDocument("doc", "owner"), { statusCode: 403 });
+    assert.equal(lost.root.auditOutbox, undefined);
+    assert.equal(Object.keys(lost.root.drawing.documents).length, 1);
+    const changed = make();
+    changed.retry((root) => {
+        root.drawing.pages.added = { documentId: "doc", name: "Added", position: 1, snapshotId: "missing" };
+        root.drawing.pagesByDocument.doc.added = true;
+    });
+    const copy = await changed.drawing.duplicateDocument("doc", "owner");
+    assert.deepEqual(copy.pages.map((page) => page.name), ["Page", "Added"]);
+    const wrong = make();
+    wrong.root.drawing.pages.page.documentId = "other";
+    await assert.rejects(wrong.drawing.duplicateDocument("doc", "owner"), { statusCode: 409 });
+    assert.equal(wrong.root.auditOutbox, undefined);
+    const invalid = make();
+    invalid.root.drawing.snapshots = { old: { snapshot: { objects: [{ type: "invalid" }] } } };
+    await assert.rejects(invalid.drawing.duplicateDocument("doc", "owner"), { statusCode: 500 });
+    assert.equal(invalid.root.auditOutbox, undefined);
+    const failed = make();
+    failed.fail();
+    await assert.rejects(failed.drawing.duplicateDocument("doc", "owner"), /database unavailable/);
+    assert.equal(failed.root.auditOutbox, undefined);
+});
+
+function restoreHarness() {
+    return harness({
+        drawing: {
+            documents: { doc: { ownerUserId: "owner", updatedAt: "before" } },
+            access: { doc: { permissions: { editor: { role: "Editor", status: "Active" } } } },
+            pages: { page: { documentId: "doc", version: 1, schemaVersion: 1, snapshotId: "current" } },
+            snapshots: {
+                current: { pageId: "page", version: 1, schemaVersion: 1, snapshot: { objects: [] } },
+                previous: { pageId: "page", version: 0, schemaVersion: 1,
+                    snapshot: { objects: [{ id: "private-shape", type: "rect", x: 1, y: 2 }] } }
+            },
+            versionsByPage: { page: { 0: { snapshotId: "previous" }, 1: { snapshotId: "current" } } }
+        }
+    });
+}
+
+test("restoring a version atomically updates the page, snapshot and audit event", async () => {
+    const h = restoreHarness();
+    const result = await h.drawing.restoreVersion("page", "0", "editor");
+    const data = h.root.drawing;
+    assert.equal(result.version, 2);
+    assert.equal(data.pages.page.version, 2);
+    assert.equal(data.documents.doc.updatedAt, result.updatedAt);
+    assert.equal(data.versionsByPage.page[2].snapshotId, data.pages.page.snapshotId);
+    assert.deepEqual(data.snapshots[data.pages.page.snapshotId].snapshot, data.snapshots.previous.snapshot);
+    const [event] = Object.values(h.root.auditOutbox);
+    assert.equal(event.action, "drawing.version.restored");
+    assert.equal(event.targetId, "page");
+    assert.doesNotMatch(JSON.stringify(event), /private-shape/);
+    const published = [];
+    const worker = new AuditOutboxWorker({ getRealtimeDatabase: () => h.database, getFirestoreDatabase: () => ({
+        collection: () => ({ doc: () => ({ create: async (record) => published.push(record) }) })
+    }) });
+    await worker.flush();
+    assert.equal(published[0].action, "drawing.version.restored");
+});
+
+test("version restoration rechecks changes, permissions and collaboration during retry", async () => {
+    const lost = restoreHarness();
+    lost.retry((root) => { root.drawing.access.doc.permissions.editor.status = "Revoked"; });
+    await assert.rejects(lost.drawing.restoreVersion("page", "0", "editor"), { statusCode: 403 });
+    assert.equal(lost.root.auditOutbox, undefined);
+    const changed = restoreHarness();
+    changed.retry((root) => { root.drawing.pages.page.version = 2; });
+    await assert.rejects(changed.drawing.restoreVersion("page", "0", "editor"), { statusCode: 409 });
+    assert.equal(changed.root.auditOutbox, undefined);
+    const collaboration = restoreHarness();
+    collaboration.retry((root) => { root.drawing.collaborationStates = { doc: { page: { version: 1 } } }; });
+    await assert.rejects(collaboration.drawing.restoreVersion("page", "0", "editor"), { statusCode: 409 });
+    assert.equal(collaboration.root.auditOutbox, undefined);
+    const removed = restoreHarness();
+    removed.retry((root) => { delete root.drawing.snapshots.previous; });
+    assert.equal(await removed.drawing.restoreVersion("page", "0", "editor"), null);
+    assert.equal(removed.root.auditOutbox, undefined);
+    const failed = restoreHarness();
+    failed.fail();
+    await assert.rejects(failed.drawing.restoreVersion("page", "0", "owner"), /database unavailable/);
+    assert.equal(failed.root.drawing.pages.page.version, 1);
+    assert.equal(failed.root.auditOutbox, undefined);
+});
+
+test("version restoration handles invalid input, current versions and corrupt snapshots", async () => {
+    const h = restoreHarness();
+    await assert.rejects(h.drawing.restoreVersion("page", "-1", "owner"), { statusCode: 400 });
+    assert.equal(await h.drawing.restoreVersion("page", "8", "owner"), null);
+    assert.equal(h.root.auditOutbox, undefined);
+    const current = await h.drawing.restoreVersion("page", "1", "owner");
+    assert.equal(current.version, 2);
+    const bad = restoreHarness();
+    bad.root.drawing.snapshots.previous.snapshot = { objects: [{ type: "bad" }] };
+    await assert.rejects(bad.drawing.restoreVersion("page", "0", "owner"), { statusCode: 500 });
+    assert.equal(bad.root.auditOutbox, undefined);
+});
+
 test("item creation and moves atomically preserve relations, recurrence, activity and positions", async () => {
     const h = harness({
         authUsers: { owner: { firstName: "Ada" }, editor: { firstName: "Editor" } },

@@ -304,7 +304,7 @@ async function transactTodoItem({ targetId, actorId, action, change, database = 
 function transactDrawingDocument({ targetId, actorId, action, change, database = getAdminDatabase() }) {
     const actions = [
         "drawing.document.created", "drawing.document.updated", "drawing.document.archived",
-        "drawing.document.restored", "drawing.document.deleted"
+        "drawing.document.restored", "drawing.document.deleted", "drawing.document.duplicated"
     ];
     if (!actions.includes(action)) throw new Error("Acción de auditoría de pizarra no válida.");
     return transactEntity({
@@ -315,7 +315,8 @@ function transactDrawingDocument({ targetId, actorId, action, change, database =
 }
 
 function transactDrawingPage({ targetId, actorId, action, change, database = getAdminDatabase() }) {
-    const actions = ["drawing.page.created", "drawing.page.updated", "drawing.page.deleted", "drawing.page.reordered"];
+    const actions = ["drawing.page.created", "drawing.page.updated", "drawing.page.deleted", "drawing.page.reordered",
+        "drawing.page.duplicated", "drawing.version.restored"];
     if (!actions.includes(action)) throw new Error("Acción de auditoría de página no válida.");
     return transactEntity({
         id: "drawing", targetId, actorId, action, database, collectionPath: [],
