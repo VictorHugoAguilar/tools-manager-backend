@@ -4,6 +4,7 @@ const { getAdminApp } = require("../config/firebaseAdmin");
 const { HttpMetrics } = require("./httpMetrics");
 const { WebSocketMetrics } = require("./webSocketMetrics");
 const { Heartbeat } = require("./heartbeat");
+const { isTaskOperation } = require("./taskOperations");
 
 const FRONTEND_EVENTS = {
     "frontend.runtime.error": { level: "ERROR", category: "runtime" },
@@ -272,6 +273,28 @@ class TelemetryManager {
             level: statusCode >= 500 ? "ERROR" : statusCode >= 400 ? "WARN" : "INFO",
             category: "tools", eventName, actorId, traceId, requestId, durationMs,
             http: { method, route, statusCode }
+        });
+    }
+
+    recordTaskOperation({ module, route, method, actorId, traceId, requestId, durationMs, statusCode }) {
+        if (!this.enabled) return;
+        if (!isTaskOperation(module, route, method) || typeof actorId !== "string" || !actorId ||
+            typeof traceId !== "string" || !UUID.test(traceId) ||
+            typeof requestId !== "string" || !UUID.test(requestId) ||
+            typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0 ||
+            !Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599) {
+            throw new Error("Evento de operación de tareas no válido.");
+        }
+        const now = new Date().toISOString();
+        const prefix = module === "board" ? "/api/task-board" : "/api/todo-list";
+        this.queue.enqueue({
+            schemaVersion: 1, eventId: randomUUID(), occurredAt: now, receivedAt: now,
+            service: "backend", environment: this.environment, instanceId: this.instanceId,
+            level: statusCode >= 500 ? "ERROR" : statusCode >= 400 ? "WARN" : "INFO",
+            category: module === "board" ? "task_board" : "todo",
+            eventName: module === "board" ? "task_board.operation.completed" : "todo.operation.completed",
+            actorId, traceId, requestId, durationMs,
+            http: { method, route: route === "/" ? prefix : prefix + route, statusCode }
         });
     }
 

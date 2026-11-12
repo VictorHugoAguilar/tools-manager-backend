@@ -2,8 +2,10 @@ const express = require("express");
 const { todoListController } = require("../controllers/todoListController");
 const { todoListUploadAttachment } = require("../middleware/todoListUploadMiddleware");
 const { todoListStartReminderWorker } = require("../services/todoListService");
+const { taskOperationTelemetry } = require("../middleware/taskOperationTelemetry");
 
 const todoListRouter = express.Router();
+todoListRouter.use(taskOperationTelemetry("todo"));
 todoListRouter.use((_req, _res, next) => {
     todoListStartReminderWorker();
     next();

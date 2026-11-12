@@ -453,6 +453,22 @@ automáticamente a una herramienta y no sustituyen a la auditoría.
 La búsqueda local emite `frontend.tools.search.completed` después de un segundo
 sin cambios; no registra el texto, resultados, ruta ni identificador de herramienta.
 Estas señales de búsqueda también son telemetría potencialmente descartable.
+En Categorías el seguimiento corresponde a herramientas, no a una entidad de
+categoría. En Lista de tareas y Tareas, los historiales de auditoría se consultan
+en la pestaña Historial y son adicionales a la actividad existente. Los endpoints
+`GET /api/tracing/tasks/{board,todo}/:taskId/history` requieren `tracing:app`,
+registran el acceso antes de consultar y usan el índice existente de `targetId`,
+`action` y `occurredAt`. **Este permiso da acceso global al historial de tareas,
+incluidas tareas privadas de cualquier proyecto, incluso si el usuario no tiene
+acceso actual a ellas.** Debe asignarse solo a personal autorizado para esa
+auditoría. Los registros no incluyen contenido, ni pueden asociar de forma fiable
+comentarios, adjuntos, subtareas o recordatorios a su tarea. Muestran como máximo
+25 acciones publicadas y comparten las mismas limitaciones de auditoría
+experimental, registros pendientes y entornos indicadas arriba.
+Las operaciones HTTP de ambos módulos emiten `task_board.operation.completed` y
+`todo.operation.completed` con método, ruta normalizada, estado y correlación;
+no contienen identificadores de tareas, contenido ni términos de búsqueda.
+Son telemetría volátil y las trazas técnicas requieren `monitoring:app`.
 La sección de actividad identifica las consultas de almacenamiento instrumentadas
 que estén entre esos 25 eventos, con su respuesta HTTP. No representa todos los
 cambios ni sustituye la auditoría durable: la telemetría puede perderse.

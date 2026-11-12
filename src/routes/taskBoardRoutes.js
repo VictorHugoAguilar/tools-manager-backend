@@ -1,8 +1,10 @@
 const express = require("express");
 const { taskBoardController } = require("../controllers/taskBoardController");
 const { uploadTaskAttachment } = require("../middleware/taskBoardUploadMiddleware");
+const { taskOperationTelemetry } = require("../middleware/taskOperationTelemetry");
 
 const taskBoardRouter = express.Router();
+taskBoardRouter.use(taskOperationTelemetry("board"));
 
 taskBoardRouter.get("/", taskBoardController.getBoard);
 taskBoardRouter.post("/columns", taskBoardController.createColumn);
