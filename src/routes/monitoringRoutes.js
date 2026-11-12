@@ -91,11 +91,27 @@ function createMonitoringRouter(options = {}) {
             } catch (error) {
                 console.error("No se pudo consultar el recuento de usuarios activos.", error);
             }
+            let levelCounts = null;
+            try {
+                const counts = await Promise.all(["DEBUG", "INFO", "WARN", "ERROR"].map(async (level) => {
+                    const result = await db.collection("monitoringEvents")
+                        .where("environment", "==", manager.environment)
+                        .where("level", "==", level)
+                        .where("receivedAt", ">=", Timestamp.fromMillis(now.getTime() - periods[period]))
+                        .where("receivedAt", "<=", Timestamp.fromDate(now))
+                        .count().get();
+                    return [level, result.data().count];
+                }));
+                levelCounts = Object.fromEntries(counts);
+            } catch (error) {
+                console.error("No se pudo consultar el recuento de eventos por nivel.", error);
+            }
             res.set("Cache-Control", "no-store");
             return res.json({
                 period,
                 generatedAt: now.toISOString(),
                 events,
+                levelCounts,
                 httpMetrics,
                 webSocketMetrics,
                 heartbeats,
