@@ -114,6 +114,16 @@ tamaño, solo lectura o acceso revocado) y `abnormalClosed` (cierres con código
 distinto de 1000/1001; solo se usa el código, nunca el motivo). Los intervalos
 anteriores a este cambio no tienen esos campos y se devuelven como 0.
 
+El navegador emite además, solo con `durationMs`, medidas de rendimiento:
+`frontend.performance.page.loaded` (carga completa de la primera página),
+`first_contentful_paint`, `largest_contentful_paint` (se envía al ocultar o cerrar
+la pestaña), `long_task` (tareas de 200 ms o más, máximo 10 por sesión) y
+`route_transition` (de inicio a fin de una navegación completada). Son de baja
+prioridad, no incluyen URLs ni recursos y no se emiten en navegadores sin
+`PerformanceObserver`. Se consultan como eventos del servicio «Frontend»; no hay
+agregados ni percentiles de rendimiento del navegador ni medidas de renderizado
+por componente.
+
 El proceso backend mide además cada operación de Realtime Database (lecturas
 `get`/`once`, `set`, `update`, `remove` y transacciones) con el SDK cliente y el
 Admin SDK, y la agrega por minuto como `service=backend`, `metric=database_operations`

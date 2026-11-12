@@ -69,3 +69,15 @@ test("el muestreo solo afecta a DEBUG/INFO y conserva trazas completas", () => {
     assert.ok(half.items.length > 0 && half.items.length < 80);
     assert.equal(new TelemetryQueue(1, { INFO: "abc" }).sampleRates.INFO, 1);
 });
+
+test("el catálogo acepta las medidas de rendimiento del navegador solo con durationMs", () => {
+    const { normalizeFrontendEvent } = require("../../src/telemetry/telemetry");
+    const base = { schemaVersion: 1, eventId: "5b0a4f1e-2a6c-4c52-9a43-3f0f7d7f9a10", occurredAt: new Date().toISOString() };
+    const context = { environment: "test", actorId: "u1", instanceId: "i" };
+    for (const name of ["page.loaded", "first_contentful_paint", "largest_contentful_paint", "long_task", "route_transition"]) {
+        const event = normalizeFrontendEvent({ ...base, eventName: `frontend.performance.${name}`, durationMs: 123 }, context);
+        assert.equal(event.level, "INFO");
+        assert.equal(event.durationMs, 123);
+    }
+    assert.equal(normalizeFrontendEvent({ ...base, eventName: "frontend.performance.long_task", url: "/x" }, context), null);
+});
