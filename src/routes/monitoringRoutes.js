@@ -3,6 +3,7 @@ const { randomUUID } = require("node:crypto");
 const { getFirestore, Timestamp } = require("firebase-admin/firestore");
 const { getAdminApp } = require("../config/firebaseAdmin");
 const { requireAuthenticated, requirePermission } = require("../middleware/authMiddleware");
+const { cache } = require("../cache/sharedCache");
 const { telemetry } = require("../telemetry/telemetry");
 const { loadHttpMetrics, loadWebSocketMetrics } = require("../telemetry/metricsQuery");
 const { loadHeartbeatSummary } = require("../telemetry/heartbeat");
@@ -44,6 +45,16 @@ function createMonitoringRouter(options = {}) {
     const auditPublisher = options.auditWorker || auditWorker;
 
     router.use(requireAuthenticated, requirePermission("monitoring:app"));
+    const cacheSummary = () => {
+        const stats = cache.stats();
+        const lookups = stats.hits + stats.misses;
+        return { ...stats, hitRatio: lookups ? Math.round((stats.hits / lookups) * 1000) / 1000 : null };
+    };
+    const processMemory = () => {
+        const usage = process.memoryUsage();
+        const toMb = (bytes) => Math.round((bytes / 1048576) * 10) / 10;
+        return { rssMb: toMb(usage.rss), heapUsedMb: toMb(usage.heapUsed), uptimeSeconds: Math.round(process.uptime()) };
+    };
     router.get("/baseline", async (req, res, next) => {
         if (!manager.enabled) return res.status(503).json({ message: "La telemetría no está habilitada." });
         try {
@@ -52,7 +63,7 @@ function createMonitoringRouter(options = {}) {
                 actorId: req.authUser.id, occurredAt: Timestamp.now()
             });
             res.set("Cache-Control", "no-store");
-            return res.json({ generatedAt: new Date().toISOString(), instanceId: manager.instanceId, ...manager.baseline.snapshot() });
+            return res.json({ generatedAt: new Date().toISOString(), instanceId: manager.instanceId, ...manager.baseline.snapshot(), cache: cacheSummary(), process: processMemory() });
         } catch (error) {
             return next(error);
         }
