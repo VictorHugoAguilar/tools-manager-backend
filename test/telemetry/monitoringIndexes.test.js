@@ -29,4 +29,9 @@ test("monitoring index configuration covers every supported structured query", (
     assert.ok(hasIndex("auditEvents", [
         ["auditScope", "ASCENDING"], ["occurredAt", "DESCENDING"]
     ]), "Falta el índice para el historial de almacenamiento");
+    for (const field of ["targetId", "toolId"]) {
+        assert.ok(hasIndex("auditEvents", [
+            [field, "ASCENDING"], ["action", "ASCENDING"], ["occurredAt", "DESCENDING"]
+        ]));
+    }
 });

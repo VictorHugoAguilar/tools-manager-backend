@@ -103,9 +103,9 @@ auditan hitos y cambios de acceso, no cada actualización WebSocket.
 
 | Ámbito y operaciones | Cobertura actual | Objetivo y nombres de eventos propuestos |
 |---|---|---|
-| Herramientas: alta, edición, estado, referencia de imagen y eliminación | Auditoría experimental `AUDIT_TOOLS_ENABLED`; `tool.created`, `tool.updated`, `tool.state.updated`, `tool.image.updated`, `tool.deleted`. | Mantener eventos existentes; validar atomicidad, fallos y cambios concurrentes antes de activar. |
+| Herramientas: alta, edición, estado, referencia de imagen y eliminación | Auditoría experimental `AUDIT_TOOLS_ENABLED`; `tool.created`, `tool.updated`, `tool.state.updated`, `tool.image.updated`, `tool.deleted`. Telemetría de finalización HTTP sin identificadores de herramienta. | Mantener eventos existentes; validar atomicidad, fallos y cambios concurrentes antes de activar. |
 | Reparaciones de herramientas: alta, edición y eliminación | Auditoría experimental `AUDIT_REPAIRS_ENABLED`: `repair.created`, `repair.updated`, `repair.deleted`. | Validar en Firebase y bajo concurrencia; los eventos contienen identificadores de reparación y herramienta, nunca descripción o contenido. |
-| Herramientas y reparaciones: listados y detalle | Métricas HTTP y 5xx generales. | Agregados; si una búsqueda se instrumenta, `tools.search.completed` sin términos ni resultados. No registrar cada lectura de rutina. |
+| Herramientas y reparaciones: listados y detalle | Métricas HTTP y 5xx generales; `frontend.tools.search.completed` para la búsqueda local, sin términos ni resultados. | Agregados para lecturas rutinarias. |
 | Técnicos, ubicaciones, tipos de herramientas y etiquetas: alta, edición y eliminación | Auditoría experimental `AUDIT_CATALOGS_ENABLED`: `technician.created/updated/deleted`, `location.created/updated/deleted`, `tool_type.created/updated/deleted` y `tag.created/updated/deleted`. | Validar en Firebase y bajo concurrencia. Los listados y detalles usan agregados. |
 | Taller: estanterías, niveles, organizadores, compartimentos y materiales | Auditoría experimental `AUDIT_WORKSHOP_STORAGE_ENABLED` para alta, edición, eliminación y referencia de imagen; eventos `workshop.<colección>.created/updated/deleted` y `workshop.materials.image.updated`. | Conservar nombres existentes y validar toda la cobertura, incluidas condiciones de carrera y limpieza de imágenes. |
 | Taller: categorías y lecturas | Categorías con auditoría experimental `workshop.category.created/deleted`; lecturas con `storage.workshop.viewed`, `storage.workshop.searched` y `storage.workshop.categories.viewed`. | Mantener las lecturas instrumentadas existentes y verificar que no contienen consulta ni resultados. |
@@ -437,6 +437,22 @@ escribir la auditoría. Cada actualización genera un acceso auditado. La interf
 muestra hasta 25 eventos de la última hora, 24 horas o 7 días y la salud del
 recolector de la instancia que responde, no la del conjunto de instancias.
 Las métricas y estados sin fuente aparecen como «Sin datos».
+En Tablero, Inventario y Reparaciones, `tracing:app` permite consultar hasta
+25 cambios publicados de una herramienta y sus reparaciones. La API
+`GET /api/tracing/tools/:toolId/history` audita el acceso antes de leer y
+requiere los índices de `auditEvents` por `targetId` o `toolId`, `action` y
+`occurredAt` incluidos en `firestore.monitoring.indexes.json`. Los datos
+proceden de la base compartida y no identifican el entorno; el historial puede
+omitir cambios anteriores, pendientes o hechos mientras la auditoría estaba
+desactivada. No activar las auditorías experimentales sin las validaciones
+documentadas. El acceso a trazas técnicas continúa requiriendo `monitoring:app`.
+Las operaciones de escritura de herramientas y reparaciones emiten eventos
+volátiles `tools.*.completed` con respuesta HTTP, ruta normalizada y trace ID,
+sin contenido ni identificador de herramienta. No permiten vincular trazas
+automáticamente a una herramienta y no sustituyen a la auditoría.
+La búsqueda local emite `frontend.tools.search.completed` después de un segundo
+sin cambios; no registra el texto, resultados, ruta ni identificador de herramienta.
+Estas señales de búsqueda también son telemetría potencialmente descartable.
 La sección de actividad identifica las consultas de almacenamiento instrumentadas
 que estén entre esos 25 eventos, con su respuesta HTTP. No representa todos los
 cambios ni sustituye la auditoría durable: la telemetría puede perderse.

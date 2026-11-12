@@ -9,6 +9,7 @@ const FRONTEND_EVENTS = {
     "frontend.runtime.error": { level: "ERROR", category: "runtime" },
     "frontend.api.request.failed": { level: "ERROR", category: "http" },
     "frontend.route.changed": { level: "INFO", category: "navigation" },
+    "frontend.tools.search.completed": { level: "INFO", category: "tools" },
     "frontend.performance.measurement": { level: "INFO", category: "performance" },
     "frontend.telemetry.flush.failed": { level: "WARN", category: "system" }
 };
@@ -240,6 +241,37 @@ class TelemetryManager {
             requestId,
             durationMs,
             http: { method: "GET", route: routes[eventName], statusCode }
+        });
+    }
+
+    recordToolOperation({ eventName, actorId, traceId, requestId, durationMs, statusCode }) {
+        if (!this.enabled) return;
+        const routes = {
+            "tools.create.completed": ["POST", "/api/tools"],
+            "tools.update.completed": ["PUT", "/api/tools/:id"],
+            "tools.state.completed": ["PATCH", "/api/tools/:id/state"],
+            "tools.image.upload.completed": ["POST", "/api/tools/:id/image"],
+            "tools.image.delete.completed": ["DELETE", "/api/tools/:id/image"],
+            "tools.delete.completed": ["DELETE", "/api/tools/:id"],
+            "tools.repair.create.completed": ["POST", "/api/tools/:toolId/repairs"],
+            "tools.repair.update.completed": ["PUT", "/api/tools/:toolId/repairs/:repairId"],
+            "tools.repair.delete.completed": ["DELETE", "/api/tools/:toolId/repairs/:repairId"]
+        };
+        if (!Object.hasOwn(routes, eventName) || typeof actorId !== "string" || !actorId ||
+            typeof traceId !== "string" || !UUID.test(traceId) ||
+            typeof requestId !== "string" || !UUID.test(requestId) ||
+            typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0 ||
+            !Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599) {
+            throw new Error("Evento de operación de herramienta no válido.");
+        }
+        const now = new Date().toISOString();
+        const [method, route] = routes[eventName];
+        this.queue.enqueue({
+            schemaVersion: 1, eventId: randomUUID(), occurredAt: now, receivedAt: now,
+            service: "backend", environment: this.environment, instanceId: this.instanceId,
+            level: statusCode >= 500 ? "ERROR" : statusCode >= 400 ? "WARN" : "INFO",
+            category: "tools", eventName, actorId, traceId, requestId, durationMs,
+            http: { method, route, statusCode }
         });
     }
 

@@ -16,6 +16,7 @@ const { todoListRouter } = require("./routes/todoListRoutes");
 const { drawingRouter } = require("./routes/drawingRoutes");
 const { telemetryRouter } = require("./routes/telemetryRoutes");
 const { monitoringRouter } = require("./routes/monitoringRoutes");
+const { toolTracingRouter } = require("./routes/toolTracingRoutes");
 const { createTelemetryMiddleware } = require("./middleware/telemetryMiddleware");
 const {
     requireAuthenticated,
@@ -90,6 +91,7 @@ function createApp() {
     app.use("/api/users", userRouter);
     app.use("/api/admin", adminRouter);
     app.use("/api/monitoring", monitoringRouter);
+    app.use("/api/tracing/tools", toolTracingRouter);
 
     const protectApplicationApi = [
         requireAuthenticated,
