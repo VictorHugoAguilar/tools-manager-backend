@@ -454,8 +454,10 @@ La búsqueda local emite `frontend.tools.search.completed` después de un segund
 sin cambios; no registra el texto, resultados, ruta ni identificador de herramienta.
 Estas señales de búsqueda también son telemetría potencialmente descartable.
 En Categorías el seguimiento corresponde a herramientas, no a una entidad de
-categoría. En Lista de tareas y Tareas, los historiales de auditoría se consultan
-en la pestaña Historial y son adicionales a la actividad existente. Los endpoints
+categoría. En Lista de tareas y Tareas, el panel Seguimiento de tareas permite
+seleccionar una tarea y consultar su auditoría, adicional a la actividad existente.
+En Tareas el selector incluye solo las tareas cargadas en la vista actual según sus
+filtros y paginación. Los endpoints
 `GET /api/tracing/tasks/{board,todo}/:taskId/history` requieren `tracing:app`,
 registran el acceso antes de consultar y usan el índice existente de `targetId`,
 `action` y `occurredAt`. **Este permiso da acceso global al historial de tareas,

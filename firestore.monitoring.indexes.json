@@ -4,34 +4,82 @@
       "collectionGroup": "auditEvents",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "targetId", "order": "ASCENDING" },
-        { "fieldPath": "action", "order": "ASCENDING" },
-        { "fieldPath": "occurredAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "action",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "targetId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "occurredAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "auditEvents",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "toolId", "order": "ASCENDING" },
-        { "fieldPath": "action", "order": "ASCENDING" },
-        { "fieldPath": "occurredAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "targetId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "action",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "occurredAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "auditEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "toolId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "action",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "occurredAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "monitoringActiveUsers",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "environment", "order": "ASCENDING" },
-        { "fieldPath": "lastInteractionAt", "order": "ASCENDING" }
+        {
+          "fieldPath": "environment",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastInteractionAt",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "auditEvents",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "auditScope", "order": "ASCENDING" },
-        { "fieldPath": "occurredAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "auditScope",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "occurredAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
@@ -390,18 +438,36 @@
       "collectionGroup": "monitoringMetricBuckets",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "environment", "order": "ASCENDING" },
-        { "fieldPath": "metricName", "order": "ASCENDING" },
-        { "fieldPath": "service", "order": "ASCENDING" },
-        { "fieldPath": "intervalStart", "order": "ASCENDING" }
+        {
+          "fieldPath": "environment",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "metricName",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "service",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "intervalStart",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "monitoringInstances",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "environment", "order": "ASCENDING" },
-        { "fieldPath": "heartbeatAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "environment",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "heartbeatAt",
+          "order": "DESCENDING"
+        }
       ]
     }
   ],
