@@ -114,6 +114,17 @@ tamaño, solo lectura o acceso revocado) y `abnormalClosed` (cierres con código
 distinto de 1000/1001; solo se usa el código, nunca el motivo). Los intervalos
 anteriores a este cambio no tienen esos campos y se devuelven como 0.
 
+Las escrituras de `/api/workshop-storage` (categorías, estanterías, niveles,
+organizadores, compartimentos, materiales e imagen de material) emiten
+`workshop_storage.operation.completed` con la ruta normalizada, el método, el
+código HTTP, la duración, `traceId` y `requestId`; nunca identificadores, consultas
+ni cuerpos. Las lecturas siguen registrándose con `storage.workshop.*`. El historial
+por elemento se consulta en `GET /api/tracing/workshop/:targetId/history`
+(permiso `tracing:app`, 25 cambios, reutiliza el índice `targetId` + `action` +
+`occurredAt`) y se muestra en la página de almacenamiento del taller; el historial
+global del taller sigue en Monitorización. Los eventos de categorías usan como
+objetivo el ajuste de categorías, no un elemento físico.
+
 El navegador emite además, solo con `durationMs`, medidas de rendimiento:
 `frontend.performance.page.loaded` (carga completa de la primera página),
 `first_contentful_paint`, `largest_contentful_paint` (se envía al ocultar o cerrar

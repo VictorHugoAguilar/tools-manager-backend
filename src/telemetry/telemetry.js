@@ -7,6 +7,7 @@ const { DatabaseMetrics } = require("./databaseMetrics");
 const { setDatabaseRecorder } = require("./databaseInstrumentation");
 const { Heartbeat } = require("./heartbeat");
 const { isTaskOperation } = require("./taskOperations");
+const { isWorkshopOperation } = require("./workshopOperations");
 
 const FRONTEND_EVENTS = {
     "frontend.runtime.error": { level: "ERROR", category: "runtime" },
@@ -345,6 +346,18 @@ class TelemetryManager {
             eventName: module === "board" ? "task_board.operation.completed" : "todo.operation.completed",
             actorId, traceId, requestId, durationMs,
             http: { method, route: route === "/" ? prefix : prefix + route, statusCode }
+        });
+    }
+
+    recordWorkshopOperation({ route, method, actorId, traceId, requestId, durationMs, statusCode }) {
+        if (!this.enabled) return;
+        this.assertOperation({ traceId, requestId, durationMs, statusCode });
+        if (!isWorkshopOperation(route, method) || typeof actorId !== "string" || !actorId) {
+            throw new Error("Evento de operación del almacenamiento del taller no válido.");
+        }
+        this.enqueueOperation({
+            eventName: "workshop_storage.operation.completed", category: "workshop_storage",
+            actorId, traceId, requestId, durationMs, method, route: `/api/workshop-storage${route}`, statusCode
         });
     }
 

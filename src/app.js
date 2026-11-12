@@ -18,6 +18,7 @@ const { telemetryRouter } = require("./routes/telemetryRoutes");
 const { monitoringRouter } = require("./routes/monitoringRoutes");
 const { toolTracingRouter } = require("./routes/toolTracingRoutes");
 const { taskTracingRouter } = require("./routes/taskTracingRoutes");
+const { workshopTracingRouter } = require("./routes/workshopTracingRoutes");
 const { createTelemetryMiddleware } = require("./middleware/telemetryMiddleware");
 const {
     requireAuthenticated,
@@ -94,6 +95,7 @@ function createApp() {
     app.use("/api/monitoring", monitoringRouter);
     app.use("/api/tracing/tools", toolTracingRouter);
     app.use("/api/tracing/tasks", taskTracingRouter);
+    app.use("/api/tracing/workshop", workshopTracingRouter);
 
     const protectApplicationApi = [
         requireAuthenticated,

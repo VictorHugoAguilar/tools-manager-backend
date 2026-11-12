@@ -2,8 +2,10 @@ const express = require("express");
 const controller = require("../controllers/workshopStorageController");
 const { uploadWorkshopStorageImage } = require("../middleware/workshopStorageUploadMiddleware");
 const { storageReadTelemetry } = require("../middleware/storageReadTelemetry");
+const { workshopOperationTelemetry } = require("../middleware/workshopOperationTelemetry");
 
 const workshopStorageRouter = express.Router();
+workshopStorageRouter.use(workshopOperationTelemetry());
 
 workshopStorageRouter.get("/", storageReadTelemetry("storage.workshop.viewed"), controller.getAll);
 workshopStorageRouter.get("/search", storageReadTelemetry("storage.workshop.searched"), controller.search);
