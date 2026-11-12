@@ -48,12 +48,20 @@ function createTelemetryMiddleware(manager = telemetry) {
             ? requestedTrace.toLowerCase() : randomUUID();
         const requestId = randomUUID();
         const startedAt = process.hrtime.bigint();
+        const baseline = manager.baseline?.enabled ? manager.baseline : null;
+        const context = baseline?.createContext();
         res.setHeader("x-trace-id", traceId);
         res.setHeader("x-request-id", requestId);
         res.once("finish", () => {
             try {
                 const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
                 manager.recordHttpMetric(durationMs, res.statusCode);
+                baseline?.recordRequest(context, {
+                    method: METHODS.has(req.method) ? req.method : "OTHER",
+                    route: normalizedRoute(req),
+                    statusCode: res.statusCode,
+                    durationMs
+                });
                 if (res.statusCode >= 500) {
                     manager.recordHttpFailure({
                         traceId,
@@ -69,7 +77,7 @@ function createTelemetryMiddleware(manager = telemetry) {
                 console.error("No se pudo registrar la telemetría HTTP.", error);
             }
         });
-        return next();
+        return baseline ? baseline.run(context, next) : next();
     };
 }
 

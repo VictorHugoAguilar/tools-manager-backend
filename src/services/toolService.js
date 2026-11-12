@@ -8,6 +8,10 @@ const {
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
 const { deleteImageByUrl } = require("./toolImageStorageService");
+const { cache, cacheConfig } = require("../cache/sharedCache");
+const { cacheKeys, CACHE_PREFIXES } = require("../cache/cacheKeys");
+
+const PREFIX_LISTS = CACHE_PREFIXES.toolsList;
 const { isToolAuditEnabled, transactTool } = require("../audit/businessOutbox");
 
 function normalizeText(value) {
@@ -159,21 +163,23 @@ function applyPagination(tools, pagination = {}) {
     };
 }
 
-async function findAll(options = {}) {
+async function readAllTools() {
     const database = getDatabaseInstance();
     const snapshot = await get(ref(database, "tools"));
-    const tools = serializeToolsFromSnapshot(snapshot.val());
+    return serializeToolsFromSnapshot(snapshot.val());
+}
+
+// Se cachea la colección base porque filtros, orden y paginación ya se aplican en memoria sobre ella:
+// una sola entrada sirve a todas las consultas y evita claves por combinación de parámetros.
+async function findAll(options = {}) {
+    const tools = await cache.getOrLoad(cacheKeys.toolsAll(), readAllTools, cacheConfig.ttlMs.tools);
     const filteredTools = applyFilters(tools, options.filters);
     const sortedTools = applySorting(filteredTools, options.sorting);
     const pagination = options.pagination || { enabled: false };
     return applyPagination(sortedTools, pagination);
 }
 
-async function findById(id) {
-    if (!id || typeof id !== "string") {
-        return null;
-    }
-
+async function readToolById(id) {
     const database = getDatabaseInstance();
     const snapshot = await get(ref(database, `tools/${id}`));
 
@@ -187,7 +193,37 @@ async function findById(id) {
     };
 }
 
-async function create(toolData, actorId) {
+// Los ids que no cumplen el formato de clave no se cachean y se consultan directamente.
+async function findById(id) {
+    if (!id || typeof id !== "string") {
+        return null;
+    }
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
+        return readToolById(id);
+    }
+
+    const key = cacheKeys.toolDetail(id);
+    const tool = await cache.getOrLoad(key, () => readToolById(id), cacheConfig.ttlMs.tools);
+    // Las herramientas inexistentes no se cachean: otra instancia podría crearlas.
+    if (tool === null) cache.invalidate(key);
+    return tool;
+}
+
+// Las comprobaciones previas a una escritura leen siempre de Firebase, nunca de la caché.
+const readExistingTool = readToolById;
+
+// Invalida tras la escritura, también si falla, porque su resultado en Firebase puede ser incierto.
+async function withInvalidation(id, write) {
+    try {
+        return await write();
+    } finally {
+        cache.invalidate(cacheKeys.toolsAll());
+        cache.invalidatePrefix(PREFIX_LISTS);
+        if (typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id)) cache.invalidate(cacheKeys.toolDetail(id));
+    }
+}
+
+async function createTool(toolData, actorId) {
     const database = getDatabaseInstance();
     const toolsRef = ref(database, "tools");
     const newToolRef = push(toolsRef);
@@ -220,7 +256,7 @@ async function updateTool(id, toolData, actorId) {
             change: (current) => current ? { value: updatedTool, result: updatedTool } : null
         });
     }
-    const existingTool = await findById(id);
+    const existingTool = await readExistingTool(id);
 
     if (!existingTool) {
         return null;
@@ -236,7 +272,7 @@ async function updateTool(id, toolData, actorId) {
     return updatedTool;
 }
 
-async function updateState(id, state, actorId) {
+async function changeState(id, state, actorId) {
     if (!id || typeof id !== "string") {
         return null;
     }
@@ -251,7 +287,7 @@ async function updateState(id, state, actorId) {
             }
         });
     }
-    const existingTool = await findById(id);
+    const existingTool = await readExistingTool(id);
 
     if (!existingTool) {
         return null;
@@ -266,7 +302,7 @@ async function updateState(id, state, actorId) {
     };
 }
 
-async function updateImageUrl(id, urlSrc, actorId) {
+async function changeImageUrl(id, urlSrc, actorId) {
     if (!id || typeof id !== "string") {
         return null;
     }
@@ -281,7 +317,7 @@ async function updateImageUrl(id, urlSrc, actorId) {
             }
         });
     }
-    const existingTool = await findById(id);
+    const existingTool = await readExistingTool(id);
 
     if (!existingTool) {
         return null;
@@ -296,7 +332,7 @@ async function updateImageUrl(id, urlSrc, actorId) {
     };
 }
 
-async function remove(id, actorId) {
+async function removeTool(id, actorId) {
     if (!id || typeof id !== "string") {
         return false;
     }
@@ -310,7 +346,7 @@ async function remove(id, actorId) {
         await deleteImageByUrl(removed.urlSrc);
         return true;
     }
-    const existingTool = await findById(id);
+    const existingTool = await readExistingTool(id);
 
     if (!existingTool) {
         return false;
@@ -325,9 +361,14 @@ async function remove(id, actorId) {
 module.exports = {
     findAll,
     findById,
-    create,
-    update: updateTool,
-    updateState,
-    updateImageUrl,
-    remove
+    create: async (toolData, actorId) => {
+        const created = await withInvalidation(null, () => createTool(toolData, actorId));
+        // El id de una herramienta nueva solo se conoce tras crearla.
+        if (created?.id) cache.invalidate(cacheKeys.toolDetail(created.id));
+        return created;
+    },
+    update: (id, toolData, actorId) => withInvalidation(id, () => updateTool(id, toolData, actorId)),
+    updateState: (id, state, actorId) => withInvalidation(id, () => changeState(id, state, actorId)),
+    updateImageUrl: (id, urlSrc, actorId) => withInvalidation(id, () => changeImageUrl(id, urlSrc, actorId)),
+    remove: (id, actorId) => withInvalidation(id, () => removeTool(id, actorId))
 };

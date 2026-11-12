@@ -6,6 +6,8 @@ const {
     set
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
+const { cache, cacheConfig } = require("../cache/sharedCache");
+const { cacheKeys } = require("../cache/cacheKeys");
 const { isCatalogAuditEnabled, transactCatalog } = require("../audit/businessOutbox");
 const { removeCatalogRecord } = require("../audit/catalogAudit");
 
@@ -28,10 +30,24 @@ function serializeTags(snapshotValue) {
         }));
 }
 
-async function findAll() {
+async function readAll() {
     const database = getDatabaseInstance();
     const snapshot = await get(ref(database, "tags"));
     return serializeTags(snapshot.val());
+}
+
+// Solo se cachea el listado completo; las lecturas por id y las comprobaciones previas a escribir van a Firebase.
+async function findAll() {
+    return cache.getOrLoad(cacheKeys.catalog("tags"), readAll, cacheConfig.ttlMs.catalogs);
+}
+
+// Invalida tras la escritura, también si falla, porque su resultado en Firebase puede ser incierto.
+async function withInvalidation(write) {
+    try {
+        return await write();
+    } finally {
+        cache.invalidate(cacheKeys.catalog("tags"));
+    }
 }
 
 async function findById(id) {
@@ -59,11 +75,11 @@ async function findByName(name) {
         return null;
     }
 
-    const tags = await findAll();
+    const tags = await readAll();
     return tags.find((tag) => normalizeName(tag.name) === normalizedName) ?? null;
 }
 
-async function create(tagData, actorId) {
+async function createRecord(tagData, actorId) {
     if (isCatalogAuditEnabled()) {
         const newTagRef = push(ref(getDatabaseInstance(), "tags"));
         return transactCatalog({ id: newTagRef.key, actorId, collection: "tags", operation: "created",
@@ -94,7 +110,7 @@ async function create(tagData, actorId) {
     return tag;
 }
 
-async function update(id, tagData, actorId) {
+async function updateRecord(id, tagData, actorId) {
     if (isCatalogAuditEnabled()) return transactCatalog({ id, actorId, collection: "tags", operation: "updated",
         change: (current, tags) => {
             if (!current) return null;
@@ -129,7 +145,7 @@ async function update(id, tagData, actorId) {
     return tag;
 }
 
-async function remove(id, actorId) {
+async function removeRecord(id, actorId) {
     if (isCatalogAuditEnabled()) return removeCatalogRecord("tags", id, actorId);
     const existing = await findById(id);
 
@@ -146,7 +162,7 @@ module.exports = {
     findAll,
     findById,
     findByName,
-    create,
-    update,
-    remove
+    create: (...args) => withInvalidation(() => createRecord(...args)),
+    update: (...args) => withInvalidation(() => updateRecord(...args)),
+    remove: (...args) => withInvalidation(() => removeRecord(...args))
 };

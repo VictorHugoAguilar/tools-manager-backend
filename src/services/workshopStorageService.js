@@ -7,6 +7,8 @@ const {
     update
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
+const { cache, cacheConfig } = require("../cache/sharedCache");
+const { cacheKeys, CACHE_PREFIXES } = require("../cache/cacheKeys");
 const { isWorkshopStorageAuditEnabled, transactWorkshopStorage } = require("../audit/businessOutbox");
 
 const COLLECTIONS = ["shelves", "levels", "organizers", "compartments", "materials"];
@@ -59,13 +61,29 @@ async function findEntity(collection, id) {
     return snapshot.exists() ? { id, ...snapshot.val(), collection } : null;
 }
 
-async function findAll() {
+async function readAll() {
     const entries = await Promise.all(COLLECTIONS.map(async (collection) => [
         collection,
         await findCollection(collection)
     ]));
 
     return Object.fromEntries(entries);
+}
+
+// Las cinco colecciones se cachean juntas porque forman una única instantánea lógica
+// (las relaciones entre estante, nivel, organizador, hueco y material deben ser coherentes).
+// searchMaterials trabaja en memoria sobre esa misma instantánea, por lo que no necesita claves propias.
+async function findAll() {
+    return cache.getOrLoad(cacheKeys.workshopAll(), readAll, cacheConfig.ttlMs.workshop);
+}
+
+// Invalida tras la escritura, también si falla, porque su resultado en Firebase puede ser incierto.
+async function withInvalidation(write) {
+    try {
+        return await write();
+    } finally {
+        cache.invalidatePrefix(CACHE_PREFIXES.workshop);
+    }
 }
 
 async function assertParentExists(collection, payload) {
@@ -146,7 +164,7 @@ function validateAuditedChange(collection, id, entity, storage) {
     }
 }
 
-async function create(collection, payload, actorId) {
+async function createEntity(collection, payload, actorId) {
     if (isWorkshopStorageAuditEnabled()) {
         const entityRef = push(collectionRef(collection));
         const now = new Date().toISOString();
@@ -170,7 +188,7 @@ async function create(collection, payload, actorId) {
     return { id: entityRef.key, ...entity, collection };
 }
 
-async function updateEntity(collection, id, payload, actorId, action = "updated") {
+async function writeEntity(collection, id, payload, actorId, action = "updated") {
     if (isWorkshopStorageAuditEnabled()) {
         const updatedAt = new Date().toISOString();
         return transactWorkshopStorage({ id, actorId, collection, action,
@@ -222,7 +240,7 @@ async function updateEntity(collection, id, payload, actorId, action = "updated"
     return { ...existing, ...updates };
 }
 
-async function deleteEntity(collection, id, actorId) {
+async function removeEntity(collection, id, actorId) {
     if (isWorkshopStorageAuditEnabled()) {
         return Boolean(await transactWorkshopStorage({ id, actorId, collection, action: "deleted",
             change: (existing, _entities, root) => {
@@ -333,6 +351,11 @@ async function searchMaterials(query) {
         }];
     });
 }
+
+const create = (collection, payload, actorId) => withInvalidation(() => createEntity(collection, payload, actorId));
+const updateEntity = (collection, id, payload, actorId, action) =>
+    withInvalidation(() => writeEntity(collection, id, payload, actorId, action));
+const deleteEntity = (collection, id, actorId) => withInvalidation(() => removeEntity(collection, id, actorId));
 
 module.exports = {
     COLLECTIONS,

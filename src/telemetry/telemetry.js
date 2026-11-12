@@ -5,6 +5,8 @@ const { HttpMetrics } = require("./httpMetrics");
 const { WebSocketMetrics } = require("./webSocketMetrics");
 const { DatabaseMetrics } = require("./databaseMetrics");
 const { setDatabaseRecorder } = require("./databaseInstrumentation");
+const { instrumentFirestore, setFirestoreRecorder } = require("./firestoreInstrumentation");
+const { BaselineStats } = require("./baselineStats");
 const { Heartbeat } = require("./heartbeat");
 const { isTaskOperation } = require("./taskOperations");
 const { isWorkshopOperation } = require("./workshopOperations");
@@ -196,6 +198,7 @@ class TelemetryManager {
             environment: this.environment,
             getDatabase: () => getFirestore(getAdminApp())
         }) : null);
+        this.baseline = options.baseline || new BaselineStats({ enabled: process.env.TELEMETRY_BASELINE !== "false" });
         this.heartbeat = options.heartbeat || new Heartbeat({
             instanceId: this.instanceId,
             service: this.service,
@@ -220,8 +223,19 @@ class TelemetryManager {
     start() {
         if (!this.enabled || this.timer) return;
         this.heartbeat.start();
-        if (this.databaseMetrics) {
-            setDatabaseRecorder((durationMs, failed) => this.databaseMetrics.recordOperation(durationMs, failed));
+        if (this.databaseMetrics || this.baseline.enabled) {
+            setDatabaseRecorder((durationMs, failed, meta) => {
+                this.databaseMetrics?.recordOperation(durationMs, failed);
+                this.baseline.recordOperation(meta, durationMs, failed);
+            });
+        }
+        if (this.baseline.enabled) {
+            try {
+                instrumentFirestore();
+                setFirestoreRecorder((durationMs, failed, meta) => this.baseline.recordOperation(meta, durationMs, failed));
+            } catch (error) {
+                console.error("No se pudo instrumentar Firestore para la línea base.", error);
+            }
         }
         this.timer = setInterval(() => {
             void this.flush();
@@ -236,6 +250,7 @@ class TelemetryManager {
         if (this.timer) clearInterval(this.timer);
         this.timer = null;
         setDatabaseRecorder(null);
+        setFirestoreRecorder(null);
         this.heartbeat.stop();
     }
 

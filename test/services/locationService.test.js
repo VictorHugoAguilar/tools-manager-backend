@@ -54,6 +54,10 @@ function createLocationServiceHarness(initialLocations = {}) {
         path.resolve(__dirname, "../../src/services/locationService.js"),
         {
             "firebase/database": firebaseDatabaseMock,
+            "../cache/sharedCache": {
+                cache: new (require("../../src/cache/cacheService").CacheService)(),
+                cacheConfig: require("../../src/cache/cacheConfig").loadCacheConfig({})
+            },
             "../config/database": {
                 getDatabaseInstance() {
                     return {};

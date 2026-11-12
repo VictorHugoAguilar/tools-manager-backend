@@ -54,6 +54,10 @@ function createTechnicianServiceHarness(initialTechnicians = {}) {
         path.resolve(__dirname, "../../src/services/technicianService.js"),
         {
             "firebase/database": firebaseDatabaseMock,
+            "../cache/sharedCache": {
+                cache: new (require("../../src/cache/cacheService").CacheService)(),
+                cacheConfig: require("../../src/cache/cacheConfig").loadCacheConfig({})
+            },
             "../config/database": {
                 getDatabaseInstance() {
                     return {};

@@ -44,6 +44,19 @@ function createMonitoringRouter(options = {}) {
     const auditPublisher = options.auditWorker || auditWorker;
 
     router.use(requireAuthenticated, requirePermission("monitoring:app"));
+    router.get("/baseline", async (req, res, next) => {
+        if (!manager.enabled) return res.status(503).json({ message: "La telemetría no está habilitada." });
+        try {
+            await getDatabase().collection("auditEvents").doc(randomUUID()).create({
+                schemaVersion: 1, action: "monitoring.baseline.accessed",
+                actorId: req.authUser.id, occurredAt: Timestamp.now()
+            });
+            res.set("Cache-Control", "no-store");
+            return res.json({ generatedAt: new Date().toISOString(), instanceId: manager.instanceId, ...manager.baseline.snapshot() });
+        } catch (error) {
+            return next(error);
+        }
+    });
     router.get("/overview", async (req, res, next) => {
         const periods = { "1h": 3600000, "24h": 86400000, "7d": 604800000 };
         const period = req.query.period === undefined ? "1h" : req.query.period;

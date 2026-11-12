@@ -763,6 +763,50 @@ equivale a 1. Los eventos muestreados se cuentan en `sampledOutByLevel` del
 recolector y no figuran como descartados por saturación. Al muestrear, los
 recuentos de eventos INFO/DEBUG dejan de ser exactos.
 
+### Línea base de lecturas y escrituras (`GET /api/monitoring/baseline`)
+
+Mide, por proceso y en memoria, cuántas operaciones hace el backend sobre
+Realtime Database y Firestore, para decidir qué cachear antes de tocar nada.
+Requiere permiso `monitoring:app` y se audita como `monitoring.baseline.accessed`.
+Devuelve `operations` (fuente, recurso, lectura/escritura, colección/ítem,
+recuento, errores, documentos, tiempo medio/máximo y lecturas repetidas en menos
+de 5 s) y `requests` (por método y ruta normalizada: lecturas y escrituras por
+petición). Solo se guardan nombres fijos de colección, nunca ids, valores ni
+rutas completas; el máximo es de 300 claves por tabla. Se desactiva con
+`TELEMETRY_BASELINE=false`.
+
+Límites: los contadores se reinician al reiniciar el proceso y son por instancia;
+las lecturas del proceso WebSocket no se miden; no se cuentan oyentes
+(`onSnapshot`); RTDB no informa de los bytes o nodos leídos (cada `get` cuenta 1);
+las escrituras de la propia telemetría a Firestore aparecen en la tabla.
+
+### Caché en memoria (configuración)
+
+`src/cache/` contiene el `CacheService` (TTL, límite LRU, single-flight e
+invalidación segura durante cargas), la configuración y las claves. Ya se
+usa en las lecturas de `toolService` (colección base `tools:list:all` y detalle
+`tools:detail:<id>`; las escrituras invalidan tras terminar, también si fallan, y
+las comprobaciones previas a escribir leen siempre de Firebase). También en
+`workshopStorageService.findAll` (instantánea común `workshop:all` de las cinco
+colecciones; `searchMaterials` busca en memoria sobre ella). Cualquier escritura
+invalida el prefijo `workshop:`. Los catálogos (`tags`, `locations`, `technicians`, `toolTypes`) cachean solo su
+listado (`catalog:<nombre>`); `findById` y las comprobaciones previas a escribir
+leen siempre de Firebase. Las categorías de material no se cachean. La caché es por proceso: con varias
+instancias cada una tiene la suya. Variables (los valores no válidos o fuera de
+rango se sustituyen por el valor por defecto):
+
+| Variable | Por defecto | Rango |
+| --- | --- | --- |
+| `CACHE_ENABLED` | `true` (solo `false` la desactiva) | |
+| `CACHE_MAX_ENTRIES` | 500 | 1–10000 |
+| `CACHE_TTL_TOOLS_MS` | 30000 | 1000–600000 |
+| `CACHE_TTL_WORKSHOP_MS` | 30000 | 1000–600000 |
+| `CACHE_TTL_CATALOGS_MS` | 60000 | 1000–600000 |
+
+Las claves llevan prefijo por dominio (`tools:`, `workshop:`, `catalog:`); los
+filtros se normalizan y se resumen con un hash, de modo que el texto de búsqueda
+no aparece en la clave. No existen claves para autenticación, permisos ni auditoría.
+
 ### Autenticación y usuarios
 
 Las cuentas de la aplicación usan credenciales propias, verificadas por la API; no se usa Firebase Authentication ni inicio de sesión de Google para identificar a los usuarios. Los perfiles y hashes de contraseña (scrypt con salt aleatorio) están en `authUsers`; los roles y permisos en `authRoles` y `authPermissions`; las sesiones y los tokens de recuperación se guardan como hashes en `authSessions` y `authPasswordResets`. No se añade una base SQL ni se modifica el almacenamiento de herramientas/taller. La carga existente de imágenes puede usar una identidad anónima de Firebase Storage según la configuración del bucket.

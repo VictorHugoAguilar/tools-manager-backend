@@ -54,6 +54,10 @@ function createTagServiceHarness(initialTags = {}) {
         path.resolve(__dirname, "../../src/services/tagService.js"),
         {
             "firebase/database": firebaseDatabaseMock,
+            "../cache/sharedCache": {
+                cache: new (require("../../src/cache/cacheService").CacheService)(),
+                cacheConfig: require("../../src/cache/cacheConfig").loadCacheConfig({})
+            },
             "../config/database": {
                 getDatabaseInstance() {
                     return {};

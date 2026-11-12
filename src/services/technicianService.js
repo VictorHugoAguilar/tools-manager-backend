@@ -6,6 +6,8 @@ const {
     set
 } = require("firebase/database");
 const { getDatabaseInstance } = require("../config/database");
+const { cache, cacheConfig } = require("../cache/sharedCache");
+const { cacheKeys } = require("../cache/cacheKeys");
 const { isCatalogAuditEnabled } = require("../audit/businessOutbox");
 const { createCatalogRecord, updateCatalogRecord, removeCatalogRecord } = require("../audit/catalogAudit");
 
@@ -24,10 +26,24 @@ function serializeTechnicians(snapshotValue) {
         }));
 }
 
-async function findAll() {
+async function readAll() {
     const database = getDatabaseInstance();
     const snapshot = await get(ref(database, "technicians"));
     return serializeTechnicians(snapshot.val());
+}
+
+// Solo se cachea el listado completo; las lecturas por id y las comprobaciones previas a escribir van a Firebase.
+async function findAll() {
+    return cache.getOrLoad(cacheKeys.catalog("technicians"), readAll, cacheConfig.ttlMs.catalogs);
+}
+
+// Invalida tras la escritura, también si falla, porque su resultado en Firebase puede ser incierto.
+async function withInvalidation(write) {
+    try {
+        return await write();
+    } finally {
+        cache.invalidate(cacheKeys.catalog("technicians"));
+    }
 }
 
 async function findById(id) {
@@ -48,7 +64,7 @@ async function findById(id) {
     };
 }
 
-async function create(technicianData, actorId) {
+async function createRecord(technicianData, actorId) {
     const database = getDatabaseInstance();
     const techniciansRef = ref(database, "technicians");
     const newTechnicianRef = push(techniciansRef);
@@ -62,7 +78,7 @@ async function create(technicianData, actorId) {
     return technician;
 }
 
-async function update(id, technicianData, actorId) {
+async function updateRecord(id, technicianData, actorId) {
     if (isCatalogAuditEnabled()) return updateCatalogRecord("technicians", id, technicianData, actorId);
     const existing = await findById(id);
 
@@ -80,7 +96,7 @@ async function update(id, technicianData, actorId) {
     return technician;
 }
 
-async function remove(id, actorId) {
+async function removeRecord(id, actorId) {
     if (isCatalogAuditEnabled()) return removeCatalogRecord("technicians", id, actorId);
     const existing = await findById(id);
 
@@ -96,7 +112,7 @@ async function remove(id, actorId) {
 module.exports = {
     findAll,
     findById,
-    create,
-    update,
-    remove
+    create: (...args) => withInvalidation(() => createRecord(...args)),
+    update: (...args) => withInvalidation(() => updateRecord(...args)),
+    remove: (...args) => withInvalidation(() => removeRecord(...args))
 };
