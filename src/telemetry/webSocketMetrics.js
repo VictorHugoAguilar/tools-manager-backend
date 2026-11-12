@@ -1,7 +1,7 @@
 const { Timestamp } = require("firebase-admin/firestore");
 const { HttpMetrics, INTERVAL_MS } = require("./httpMetrics");
 
-const COUNTERS = ["opened", "closed", "updates"];
+const COUNTERS = ["opened", "closed", "updates", "awareness", "rejected", "abnormalClosed"];
 
 class WebSocketMetrics extends HttpMetrics {
     documentId(bucket) {
@@ -23,7 +23,7 @@ class WebSocketMetrics extends HttpMetrics {
                 this.droppedSamples += 1;
                 return;
             }
-            bucket = { start, opened: 0, closed: 0, updates: 0 };
+            bucket = { start, opened: 0, closed: 0, updates: 0, awareness: 0, rejected: 0, abnormalClosed: 0 };
             this.buckets.set(start, bucket);
         }
         bucket[counter] += 1;
@@ -35,6 +35,7 @@ class WebSocketMetrics extends HttpMetrics {
             service: "websocket", environment: this.environment, instanceId: this.instanceId,
             metricName: "websocket_activity",
             opened: bucket.opened, closed: bucket.closed, updates: bucket.updates,
+            awareness: bucket.awareness, rejected: bucket.rejected, abnormalClosed: bucket.abnormalClosed,
             expiresAt: Timestamp.fromMillis(bucket.start + 90 * 86400000)
         };
     }

@@ -109,7 +109,7 @@ test("metrics and services enforce authorization, validate filters and audit bef
         calls.length = 0;
         const socket = await (await fetch(request(params), { headers })).json();
         assert.equal(socket.service, "websocket");
-        assert.deepEqual(socket.points, [{ start: new Date(start).toISOString(), opened: 2, closed: 0, updates: 4 }]);
+        assert.deepEqual(socket.points, [{ start: new Date(start).toISOString(), opened: 2, closed: 0, updates: 4, awareness: 0, rejected: 0, abnormalClosed: 0 }]);
         assert.deepEqual(calls.map(([type]) => type), ["audit", "collection", "read"]);
 
         calls.length = 0;

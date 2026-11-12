@@ -4,6 +4,8 @@ const { Timestamp } = require("firebase-admin/firestore");
 const { WebSocketMetrics } = require("../../src/telemetry/webSocketMetrics");
 const { loadWebSocketMetrics, MAX_BUCKETS } = require("../../src/telemetry/metricsQuery");
 
+const NO_EXTRA = { awareness: 0, rejected: 0, abnormalClosed: 0 };
+
 function writer(write) {
     return { collection: () => ({ doc: (id) => ({ create: (data) => write(id, data) }) }) };
 }
@@ -41,12 +43,26 @@ test("WebSocket metrics aggregate by instance and interval without storing messa
     );
     assert.equal(writes[0].value.expiresAt.toMillis() - 60000, 90 * 86400000);
     assert.deepEqual(Object.keys(writes[0].value).sort(), [
-        "closed", "environment", "expiresAt", "instanceId", "intervalSeconds", "intervalStart",
-        "metricName", "opened", "schemaVersion", "service", "updates"
+        "abnormalClosed", "awareness", "closed", "environment", "expiresAt", "instanceId", "intervalSeconds",
+        "intervalStart", "metricName", "opened", "rejected", "schemaVersion", "service", "updates"
     ]);
     metrics.record("opened", 60005);
     assert.equal(metrics.getHealth().droppedSamples, 1);
     assert.throws(() => metrics.record("payload"), /no válida/);
+});
+
+test("new WebSocket counters aggregate and older buckets without them still read as zero", async () => {
+    const doc = (start, extra) => ({ data: () => ({
+        service: "websocket", environment: "test", metricName: "websocket_activity",
+        intervalStart: Timestamp.fromMillis(start), opened: 1, closed: 1, updates: 1, ...extra
+    }) });
+    const result = await loadWebSocketMetrics(
+        query([doc(60000, { awareness: 4, rejected: 1, abnormalClosed: 1 }), doc(61000, {}), doc(62000, { awareness: 2 })]),
+        { now: 3600000, durationMs: 3600000, environment: "test" }
+    );
+    assert.deepEqual(result.points.map(({ awareness, rejected, abnormalClosed }) => [awareness, rejected, abnormalClosed]), [[6, 1, 1]]);
+    const invalid = query([doc(60000, { rejected: -1 })]);
+    await assert.rejects(loadWebSocketMetrics(invalid, { now: 3600000, durationMs: 3600000, environment: "test" }));
 });
 
 test("WebSocket query combines instances and keeps missing intervals absent", async () => {
@@ -65,8 +81,8 @@ test("WebSocket query combines instances and keeps missing intervals absent", as
         ["metricName", "==", "websocket_activity"]
     ]);
     assert.deepEqual(result.points, [
-        { start: new Date(60000).toISOString(), opened: 5, closed: 1, updates: 12 },
-        { start: new Date(180000).toISOString(), opened: 1, closed: 1, updates: 0 }
+        { start: new Date(60000).toISOString(), opened: 5, closed: 1, updates: 12, ...NO_EXTRA },
+        { start: new Date(180000).toISOString(), opened: 1, closed: 1, updates: 0, ...NO_EXTRA }
     ]);
     assert.deepEqual(calls.at(-1), ["limit", MAX_BUCKETS + 1]);
 });

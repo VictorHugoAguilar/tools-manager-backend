@@ -96,6 +96,45 @@ peticiones HTTP terminadas se cuentan en métricas agregadas y los 5xx generan
 excluyen para evitar bucles. Eso no equivale a auditoría de negocio ni a
 trazabilidad completa.
 
+Con telemetría habilitada también se registran, sin cuerpos, credenciales,
+correos ni identificadores de recursos (rutas normalizadas): `auth.login.succeeded`,
+`auth.login.failed`, `auth.logout.completed` y `auth.logout.failed`;
+`auth.access.denied` para 401/403 en la API (máximo 60 por minuto y proceso,
+el resto se cuenta en `accessDeniedSuppressed`); `api.action.completed` para
+POST/PUT/PATCH/DELETE de usuarios, administración, técnicos, ubicaciones, tipos,
+etiquetas, cajas, configuración de estanterías y taller (los 5xx ya generan
+`http.request.failed`; herramientas y tareas conservan sus eventos propios); y
+`process.uncaught_exception` / `process.unhandled_rejection`, que guardan solo
+el nombre del error, intentan volcar la cola durante 2 s y terminan el proceso
+con código 1, como haría Node por defecto. Son telemetría y pueden perderse.
+
+Las métricas WebSocket por minuto añaden `awareness` (mensajes de presencia
+recibidos), `rejected` (mensajes de actualización o presencia rechazados por
+tamaño, solo lectura o acceso revocado) y `abnormalClosed` (cierres con código
+distinto de 1000/1001; solo se usa el código, nunca el motivo). Los intervalos
+anteriores a este cambio no tienen esos campos y se devuelven como 0.
+
+El proceso backend mide además cada operación de Realtime Database (lecturas
+`get`/`once`, `set`, `update`, `remove` y transacciones) con el SDK cliente y el
+Admin SDK, y la agrega por minuto como `service=backend`, `metric=database_operations`
+(operaciones, fallidas, duración e histograma), consultable en `/api/monitoring/metrics`.
+Se instrumenta el SDK una sola vez, sin tocar los servicios, y nunca se guardan rutas,
+valores ni identificadores. **No se miden** el proceso WebSocket, Firestore, las
+operaciones de tipo `push` sin escritura propia ni la diferencia entre lecturas
+y escrituras; un `once` o `set` anidado cuenta una sola vez. Es telemetría y puede perderse.
+
+Desde el navegador se emiten, solo con `durationMs`, `frontend.collaboration.sync.completed`
+(tiempo hasta la primera sincronización), `frontend.collaboration.reconnected`
+(duración de una desconexión que se recuperó) y
+`frontend.collaboration.persist.completed` (tiempo hasta que el servidor confirma
+un guardado; incluye la escritura en base de datos, **no es latencia de red**).
+Son de baja prioridad y se pierden antes que los errores. **Siguen sin medirse**
+la latencia de ida y vuelta del WebSocket (Hocuspocus gestiona el ping
+internamente; un ping propio pasaría por la validación de mensajes, contaría como
+actualización y podría cambiar la autoría registrada) y los mensajes enviados. Las
+reconexiones solo se ven si el cliente llega a recuperar la conexión y a enviar
+el evento; una desconexión definitiva no genera `reconnected`.
+
 Políticas acordadas: lecturas específicas solo para búsquedas y accesos
 sensibles, además de métricas agregadas; preferencias personales y marcas de
 lectura de notificaciones no requieren auditoría durable; en colaboración se

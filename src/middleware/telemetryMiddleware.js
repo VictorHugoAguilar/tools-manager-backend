@@ -7,6 +7,11 @@ const API_ROOTS = new Set([
     "tags", "storage-boxes", "shelf-config", "workshop-storage", "task-board",
     "todo-list", "drawing"
 ]);
+const ACTION_ROOTS = new Set([
+    "users", "admin", "technicians", "locations", "tool-types", "tags",
+    "storage-boxes", "shelf-config", "workshop-storage"
+]);
+const ACTION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 
 function normalizedRoute(req) {
@@ -17,6 +22,20 @@ function normalizedRoute(req) {
         return `/api/${root}/<unmatched>`;
     }
     return `/api/${root}${path === "/" ? "" : path}`;
+}
+
+function recordApiOutcome(manager, req, res, { traceId, requestId, durationMs }) {
+    const root = /^\/api\/([^/?]+)/.exec(req.originalUrl)?.[1];
+    const method = METHODS.has(req.method) ? req.method : "OTHER";
+    const route = normalizedRoute(req);
+    const actorId = req.authUser?.id;
+    const event = { actorId, traceId, requestId, durationMs, method, route, statusCode: res.statusCode };
+    if ((res.statusCode === 401 || res.statusCode === 403) && root !== "auth" && API_ROOTS.has(root)) {
+        manager.recordAccessDenied?.(event);
+    } else if (ACTION_ROOTS.has(root) && ACTION_METHODS.has(method) && res.statusCode < 500 &&
+        !route.endsWith("<unmatched>")) {
+        manager.recordApiAction?.(event);
+    }
 }
 
 function createTelemetryMiddleware(manager = telemetry) {
@@ -45,6 +64,7 @@ function createTelemetryMiddleware(manager = telemetry) {
                         statusCode: res.statusCode
                     });
                 }
+                recordApiOutcome(manager, req, res, { traceId, requestId, durationMs });
             } catch (error) {
                 console.error("No se pudo registrar la telemetría HTTP.", error);
             }

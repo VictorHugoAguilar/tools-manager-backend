@@ -1,5 +1,6 @@
 const { applicationDefault, getApps, initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
+const { instrumentAdminDatabase } = require("../telemetry/databaseInstrumentation");
 
 let adminApp;
 
@@ -17,8 +18,15 @@ function getAdminApp() {
     return adminApp;
 }
 
+let adminDatabaseInstrumented = false;
+
 function getAdminDatabase() {
-    return getDatabase(getAdminApp());
+    const database = getDatabase(getAdminApp());
+    if (!adminDatabaseInstrumented) {
+        adminDatabaseInstrumented = true;
+        instrumentAdminDatabase(database);
+    }
+    return database;
 }
 
 module.exports = {

@@ -3,6 +3,8 @@ const { getFirestore, Timestamp } = require("firebase-admin/firestore");
 const { getAdminApp } = require("../config/firebaseAdmin");
 const { HttpMetrics } = require("./httpMetrics");
 const { WebSocketMetrics } = require("./webSocketMetrics");
+const { DatabaseMetrics } = require("./databaseMetrics");
+const { setDatabaseRecorder } = require("./databaseInstrumentation");
 const { Heartbeat } = require("./heartbeat");
 const { isTaskOperation } = require("./taskOperations");
 
@@ -12,11 +14,16 @@ const FRONTEND_EVENTS = {
     "frontend.route.changed": { level: "INFO", category: "navigation" },
     "frontend.tools.search.completed": { level: "INFO", category: "tools" },
     "frontend.performance.measurement": { level: "INFO", category: "performance" },
+    "frontend.collaboration.sync.completed": { level: "INFO", category: "collaboration" },
+    "frontend.collaboration.reconnected": { level: "INFO", category: "collaboration" },
+    "frontend.collaboration.persist.completed": { level: "INFO", category: "collaboration" },
     "frontend.telemetry.flush.failed": { level: "WARN", category: "system" }
 };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LEVEL_PRIORITY = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };
 const MAX_EVENT_BYTES = 4096;
+const MAX_ACCESS_DENIED_PER_MINUTE = 60;
+const ACTION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 function positiveInteger(value, fallback, max) {
     const parsed = Number(value);
@@ -136,6 +143,11 @@ class TelemetryManager {
             environment: this.environment,
             getDatabase: () => getFirestore(getAdminApp())
         }) : null);
+        this.databaseMetrics = options.databaseMetrics || (this.service === "backend" ? new DatabaseMetrics({
+            instanceId: this.instanceId,
+            environment: this.environment,
+            getDatabase: () => getFirestore(getAdminApp())
+        }) : null);
         this.heartbeat = options.heartbeat || new Heartbeat({
             instanceId: this.instanceId,
             service: this.service,
@@ -153,15 +165,21 @@ class TelemetryManager {
         this.lastSuccessfulFlushAt = null;
         this.lastFlushDurationMs = null;
         this.timer = null;
+        this.accessDeniedWindow = { minute: 0, count: 0 };
+        this.accessDeniedSuppressed = 0;
     }
 
     start() {
         if (!this.enabled || this.timer) return;
         this.heartbeat.start();
+        if (this.databaseMetrics) {
+            setDatabaseRecorder((durationMs, failed) => this.databaseMetrics.recordOperation(durationMs, failed));
+        }
         this.timer = setInterval(() => {
             void this.flush();
             void this.httpMetrics.flush();
             if (this.webSocketMetrics) void this.webSocketMetrics.flush();
+            if (this.databaseMetrics) void this.databaseMetrics.flush();
         }, this.intervalMs);
         this.timer.unref();
     }
@@ -169,6 +187,7 @@ class TelemetryManager {
     stop() {
         if (this.timer) clearInterval(this.timer);
         this.timer = null;
+        setDatabaseRecorder(null);
         this.heartbeat.stop();
     }
 
@@ -298,6 +317,88 @@ class TelemetryManager {
         });
     }
 
+    recordAuthOperation({ operation, actorId, traceId, requestId, durationMs, statusCode }) {
+        if (!this.enabled) return;
+        const routes = { login: "/api/auth/login", logout: "/api/auth/logout" };
+        this.assertOperation({ traceId, requestId, durationMs, statusCode });
+        if (!Object.hasOwn(routes, operation) || (actorId !== undefined && (typeof actorId !== "string" || !actorId))) {
+            throw new Error("Evento de autenticación no válido.");
+        }
+        const failed = statusCode >= 400;
+        this.enqueueOperation({
+            eventName: operation === "login" ? (failed ? "auth.login.failed" : "auth.login.succeeded")
+                : (failed ? "auth.logout.failed" : "auth.logout.completed"),
+            category: "auth", actorId, traceId, requestId, durationMs, method: "POST", route: routes[operation], statusCode
+        });
+    }
+
+    recordAccessDenied({ actorId, traceId, requestId, durationMs, method, route, statusCode }) {
+        if (!this.enabled) return false;
+        this.assertOperation({ traceId, requestId, durationMs, statusCode });
+        if (statusCode !== 401 && statusCode !== 403) throw new Error("Evento de acceso denegado no válido.");
+        const minute = Math.floor(Date.now() / 60000);
+        if (this.accessDeniedWindow.minute !== minute) this.accessDeniedWindow = { minute, count: 0 };
+        if (this.accessDeniedWindow.count >= MAX_ACCESS_DENIED_PER_MINUTE) {
+            this.accessDeniedSuppressed += 1;
+            return false;
+        }
+        this.accessDeniedWindow.count += 1;
+        this.enqueueOperation({
+            eventName: "auth.access.denied", category: "auth", actorId, traceId, requestId, durationMs, method, route, statusCode
+        });
+        return true;
+    }
+
+    recordApiAction({ actorId, traceId, requestId, durationMs, method, route, statusCode }) {
+        if (!this.enabled) return;
+        this.assertOperation({ traceId, requestId, durationMs, statusCode });
+        if (!ACTION_METHODS.has(method) || typeof route !== "string" || !route.startsWith("/api/") ||
+            (actorId !== undefined && (typeof actorId !== "string" || !actorId))) {
+            throw new Error("Evento de acción no válido.");
+        }
+        this.enqueueOperation({
+            eventName: "api.action.completed", category: "action", actorId, traceId, requestId, durationMs,
+            method, route, statusCode
+        });
+    }
+
+    recordProcessFailure(kind, error) {
+        if (!this.enabled) return false;
+        if (kind !== "uncaughtException" && kind !== "unhandledRejection") {
+            throw new Error("Fallo de proceso no válido.");
+        }
+        const name = typeof error?.name === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.name)
+            ? error.name : "UnknownError";
+        const now = new Date().toISOString();
+        return this.queue.enqueue({
+            schemaVersion: 1, eventId: randomUUID(), occurredAt: now, receivedAt: now,
+            service: this.service, environment: this.environment, instanceId: this.instanceId,
+            level: "ERROR", category: "system",
+            eventName: kind === "uncaughtException" ? "process.uncaught_exception" : "process.unhandled_rejection",
+            errorName: name
+        });
+    }
+
+    assertOperation({ traceId, requestId, durationMs, statusCode }) {
+        if (typeof traceId !== "string" || !UUID.test(traceId) ||
+            typeof requestId !== "string" || !UUID.test(requestId) ||
+            typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0 ||
+            !Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599) {
+            throw new Error("Evento de operación no válido.");
+        }
+    }
+
+    enqueueOperation({ eventName, category, actorId, traceId, requestId, durationMs, method, route, statusCode }) {
+        const now = new Date().toISOString();
+        return this.queue.enqueue({
+            schemaVersion: 1, eventId: randomUUID(), occurredAt: now, receivedAt: now,
+            service: "backend", environment: this.environment, instanceId: this.instanceId,
+            level: statusCode >= 500 ? "ERROR" : statusCode >= 400 ? "WARN" : "INFO",
+            category, eventName, ...(actorId ? { actorId } : {}), traceId, requestId, durationMs,
+            http: { method, route, statusCode }
+        });
+    }
+
     recordWebSocketEvent(eventName, connectionId) {
         if (!this.enabled) return;
         const catalog = {
@@ -362,6 +463,16 @@ class TelemetryManager {
         return this.inFlight;
     }
 
+    async flushForShutdown(timeoutMs = 2000) {
+        let timer;
+        const timeout = new Promise((resolve) => { timer = setTimeout(resolve, timeoutMs); });
+        try {
+            await Promise.race([this.flush().catch(() => {}), timeout]);
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
     getHealth() {
         return {
             enabled: this.enabled,
@@ -369,6 +480,7 @@ class TelemetryManager {
             queueCapacity: this.queue.capacity,
             droppedByLevel: { ...this.queue.dropped },
             failedEvents: this.failedEvents,
+            accessDeniedSuppressed: this.accessDeniedSuppressed,
             lastSuccessfulFlushAt: this.lastSuccessfulFlushAt,
             lastFlushDurationMs: this.lastFlushDurationMs,
             consecutiveWriteFailures: this.consecutiveWriteFailures,
@@ -376,7 +488,8 @@ class TelemetryManager {
                 consecutiveFailures: this.heartbeat.failures,
                 lastSuccess: this.heartbeat.lastSuccess
             },
-            httpMetrics: this.httpMetrics.getHealth()
+            httpMetrics: this.httpMetrics.getHealth(),
+            ...(this.databaseMetrics ? { databaseMetrics: this.databaseMetrics.getHealth() } : {})
         };
     }
 }

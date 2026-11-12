@@ -13,12 +13,14 @@ test("WebSocket lifecycle events correlate without capturing connection data", (
     recorder.documentStoreFailed();
     recorder.updateReceived();
     assert.deepEqual(recorder.getStats(), {
-        activeConnections: 1, openedConnections: 1, closedConnections: 0, receivedUpdates: 1
+        activeConnections: 1, openedConnections: 1, closedConnections: 0, receivedUpdates: 1,
+        receivedAwareness: 0, rejectedMessages: 0, abnormalClosures: 0
     });
     close({ userId: "private-user", document: "private-content" });
     close();
     assert.deepEqual(recorder.getStats(), {
-        activeConnections: 0, openedConnections: 1, closedConnections: 1, receivedUpdates: 1
+        activeConnections: 0, openedConnections: 1, closedConnections: 1, receivedUpdates: 1,
+        receivedAwareness: 0, rejectedMessages: 0, abnormalClosures: 0
     });
     const events = manager.queue.items;
     assert.deepEqual(events.map((event) => event.eventName), [
@@ -55,4 +57,24 @@ test("disabled or failing instrumentation never breaks collaboration", () => {
     } finally {
         console.error = previousError;
     }
+});
+
+test("WebSocket messages and abnormal closes are counted without payloads or close reasons", () => {
+    const manager = new TelemetryManager({ enabled: true, service: "websocket", environment: "test", instanceId: "instance" });
+    const recorder = createCollaborationTelemetry(manager);
+    const closers = [];
+    for (let i = 0; i < 3; i += 1) recorder.connected({ onClose(callback) { closers.push(callback); } });
+    closers[0]({}, { code: 1000, reason: "private-reason" });
+    closers[1]({}, { code: 1006, reason: "private-reason" });
+    closers[2]({});
+    recorder.awarenessReceived();
+    recorder.awarenessReceived();
+    recorder.messageRejected();
+    assert.deepEqual(recorder.getStats(), {
+        activeConnections: 0, openedConnections: 3, closedConnections: 3, receivedUpdates: 0,
+        receivedAwareness: 2, rejectedMessages: 1, abnormalClosures: 1
+    });
+    const bucket = [...manager.webSocketMetrics.buckets.values()][0];
+    assert.deepEqual([bucket.awareness, bucket.rejected, bucket.abnormalClosed], [2, 1, 1]);
+    assert.doesNotMatch(JSON.stringify(manager.queue.items), /private-reason/);
 });

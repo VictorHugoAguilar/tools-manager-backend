@@ -25,6 +25,7 @@ function parseMetricsFilters(query) {
     }
     if (range.to - range.from < 60000 ||
         !((query.service === "backend" && query.metric === "http_requests") ||
+          (query.service === "backend" && query.metric === "database_operations") ||
           (query.service === "websocket" && query.metric === "websocket_activity")) ||
         !["1m", "1h"].includes(query.interval)) throw invalid();
     return {
@@ -139,7 +140,11 @@ function createMonitoringRouter(options = {}) {
                 actorId: req.authUser.id, occurredAt: Timestamp.now()
             });
             const load = filters.service === "backend" ? loadHttpMetrics : loadWebSocketMetrics;
-            const result = await load(db, { ...filters, environment: manager.environment });
+            const result = await load(db, {
+                ...filters,
+                environment: manager.environment,
+                ...(filters.metric === "database_operations" ? { metricName: "database_operations" } : {})
+            });
             res.set("Cache-Control", "no-store");
             return res.json({ service: filters.service, metric: filters.metric, ...result });
         } catch (error) {

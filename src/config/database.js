@@ -1,6 +1,9 @@
 const { initializeApp, getApps, getApp } = require("firebase/app");
 const { getDatabase } = require("firebase/database");
 const { getStorage } = require("firebase/storage");
+const { instrumentClientSdk } = require("../telemetry/databaseInstrumentation");
+
+instrumentClientSdk();
 
 let databaseInstance;
 let storageInstance;

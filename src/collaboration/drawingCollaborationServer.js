@@ -3,6 +3,7 @@ require("dotenv").config();
 const { createHash } = require("node:crypto");
 const { getAdminDatabase } = require("../config/firebaseAdmin");
 const { TelemetryManager } = require("../telemetry/telemetry");
+const { installProcessFailureHandlers } = require("../telemetry/processFailures");
 const { createCollaborationTelemetry } = require("./collaborationTelemetry");
 const {
     parseRoomName,
@@ -124,6 +125,7 @@ async function startDrawingCollaborationServer() {
     }
     const actorByRoom = new Map();
     const telemetry = new TelemetryManager({ service: "websocket" });
+    if (require.main === module) installProcessFailureHandlers({ manager: telemetry });
     const collaborationTelemetry = createCollaborationTelemetry(telemetry);
     telemetry.heartbeat.setWebSocketStatsProvider(() => collaborationTelemetry.getStats());
     telemetry.heartbeat.setWebSocketMetricHealthProvider(() => telemetry.webSocketMetrics.getHealth());
@@ -167,21 +169,30 @@ async function startDrawingCollaborationServer() {
         },
         async beforeHandleMessage({ documentName, context, connection, update }) {
             collaborationTelemetry.updateReceived();
-            if (update.byteLength > MAX_COLLABORATION_STATE_BYTES) {
-                throw new Error("La actualización colaborativa supera el tamaño permitido.");
+            try {
+                if (update.byteLength > MAX_COLLABORATION_STATE_BYTES) {
+                    throw new Error("La actualización colaborativa supera el tamaño permitido.");
+                }
+                const access = await revalidateCollaborationContext(context);
+                if (!access) throw new Error("El acceso a la pizarra se ha revocado.");
+                if (access.role === "Viewer") {
+                    connection.readOnly = true;
+                    throw new Error("El acceso de solo lectura no permite modificar la pizarra.");
+                }
+                connection.readOnly = false;
+                actorByRoom.set(documentName, access.userId);
+            } catch (error) {
+                collaborationTelemetry.messageRejected();
+                throw error;
             }
-            const access = await revalidateCollaborationContext(context);
-            if (!access) throw new Error("El acceso a la pizarra se ha revocado.");
-            if (access.role === "Viewer") {
-                connection.readOnly = true;
-                throw new Error("El acceso de solo lectura no permite modificar la pizarra.");
-            }
-            connection.readOnly = false;
-            actorByRoom.set(documentName, access.userId);
         },
         async beforeHandleAwareness({ context, states }) {
+            collaborationTelemetry.awarenessReceived();
             const access = await revalidateCollaborationContext(context);
-            if (!access) throw new Error("El acceso a la pizarra se ha revocado.");
+            if (!access) {
+                collaborationTelemetry.messageRejected();
+                throw new Error("El acceso a la pizarra se ha revocado.");
+            }
             for (const [clientId, state] of states) {
                 if (!state || typeof state !== "object") {
                     states.delete(clientId);

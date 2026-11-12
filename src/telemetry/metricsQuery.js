@@ -3,13 +3,13 @@ const { HISTOGRAM_KEYS, INTERVAL_MS } = require("./httpMetrics");
 
 const MAX_BUCKETS = 25000;
 
-async function loadHttpMetrics(db, { now, durationMs, environment, resolutionMs }) {
+async function loadHttpMetrics(db, { now, durationMs, environment, resolutionMs, metricName = "http_requests" }) {
     const from = Math.ceil((now - durationMs) / INTERVAL_MS) * INTERVAL_MS;
     const to = Math.floor(now / INTERVAL_MS) * INTERVAL_MS;
     const snapshot = await db.collection("monitoringMetricBuckets")
         .where("environment", "==", environment)
         .where("service", "==", "backend")
-        .where("metricName", "==", "http_requests")
+        .where("metricName", "==", metricName)
         .where("intervalStart", ">=", Timestamp.fromMillis(from))
         .where("intervalStart", "<", Timestamp.fromMillis(to))
         .orderBy("intervalStart", "asc")
@@ -27,7 +27,7 @@ async function loadHttpMetrics(db, { now, durationMs, environment, resolutionMs 
     const histogram = Object.fromEntries(HISTOGRAM_KEYS.map((key) => [key, 0]));
     for (const doc of snapshot.docs) {
         const bucket = doc.data();
-        if (bucket.service !== "backend" || bucket.environment !== environment || bucket.metricName !== "http_requests") continue;
+        if (bucket.service !== "backend" || bucket.environment !== environment || bucket.metricName !== metricName) continue;
         if (!Number.isSafeInteger(bucket.count) || bucket.count <= 0 ||
             !Number.isSafeInteger(bucket.errors) || bucket.errors < 0 || bucket.errors > bucket.count ||
             typeof bucket.sum !== "number" || !Number.isFinite(bucket.sum) || bucket.sum < 0 ||
@@ -99,12 +99,15 @@ async function loadWebSocketMetrics(db, { now, durationMs, environment, resoluti
             bucket.metricName !== "websocket_activity") continue;
         if (!bucket.intervalStart || typeof bucket.intervalStart.toMillis !== "function" ||
             !Number.isFinite(bucket.intervalStart.toMillis()) ||
-            ["opened", "closed", "updates"].some((key) => !Number.isSafeInteger(bucket[key]) || bucket[key] < 0)) {
+            WEBSOCKET_REQUIRED.some((key) => !Number.isSafeInteger(bucket[key]) || bucket[key] < 0) ||
+            WEBSOCKET_OPTIONAL.some((key) => bucket[key] !== undefined &&
+                (!Number.isSafeInteger(bucket[key]) || bucket[key] < 0))) {
             throw new Error("Un intervalo de métricas WebSocket almacenado no es válido.");
         }
         const start = Math.floor(bucket.intervalStart.toMillis() / resolution) * resolution;
-        const group = groups.get(start) || { start, opened: 0, closed: 0, updates: 0 };
-        for (const key of ["opened", "closed", "updates"]) group[key] += bucket[key];
+        const group = groups.get(start) ||
+            { start, opened: 0, closed: 0, updates: 0, awareness: 0, rejected: 0, abnormalClosed: 0 };
+        for (const key of [...WEBSOCKET_REQUIRED, ...WEBSOCKET_OPTIONAL]) group[key] += bucket[key] ?? 0;
         groups.set(start, group);
     }
     return {
@@ -116,5 +119,8 @@ async function loadWebSocketMetrics(db, { now, durationMs, environment, resoluti
         }))
     };
 }
+
+const WEBSOCKET_REQUIRED = ["opened", "closed", "updates"];
+const WEBSOCKET_OPTIONAL = ["awareness", "rejected", "abnormalClosed"];
 
 module.exports = { loadHttpMetrics, loadWebSocketMetrics, MAX_BUCKETS };

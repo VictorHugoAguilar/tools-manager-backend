@@ -53,3 +53,19 @@ test("operation middleware forwards server correlation and status on completion 
     assert.equal(captured.statusCode, 204);
     assert.equal(Object.hasOwn(captured, "params"), false);
 });
+
+test("frontend collaboration measurements accept only a duration and use a closed catalog", () => {
+    const context = { environment: "test", actorId: "actor", instanceId: "instance" };
+    const input = {
+        schemaVersion: 1, eventId: randomUUID(), occurredAt: new Date().toISOString(), durationMs: 120
+    };
+    for (const eventName of ["frontend.collaboration.sync.completed", "frontend.collaboration.reconnected",
+        "frontend.collaboration.persist.completed"]) {
+        const event = normalizeFrontendEvent({ ...input, eventName, eventId: randomUUID() }, context);
+        assert.equal(event.category, "collaboration");
+        assert.equal(event.level, "INFO");
+        assert.equal(event.durationMs, 120);
+    }
+    assert.equal(normalizeFrontendEvent({ ...input, eventName: "frontend.collaboration.sync.completed", roomName: "private" }, context), null);
+    assert.equal(normalizeFrontendEvent({ ...input, eventName: "frontend.collaboration.unknown" }, context), null);
+});

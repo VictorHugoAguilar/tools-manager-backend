@@ -277,6 +277,7 @@ const controller = {
                 throw createHttpError("El correo o la contraseña no son correctos.", 401);
             }
             await issueSession(res, profile.id);
+            res.locals.telemetryActorId = profile.id;
             failedAttempts.delete(req.socket.remoteAddress || "unknown");
             return res.json({ user: getPublicUser(await getProfileWithPermissions(profile.id)) });
         } catch (error) {

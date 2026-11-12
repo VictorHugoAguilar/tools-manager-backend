@@ -4,6 +4,7 @@ const { connectToDatabase } = require("./config/database");
 const { initializeAuthData } = require("./services/userService");
 const { createApp } = require("./app");
 const { telemetry } = require("./telemetry/telemetry");
+const { installProcessFailureHandlers } = require("./telemetry/processFailures");
 const { auditWorker } = require("./audit/outboxWorker");
 const {
     isToolAuditEnabled, isRoleAuditEnabled, isUserAuditEnabled, isSelfUserAuditEnabled, isRecoveryAuditEnabled,
@@ -42,6 +43,7 @@ async function startServer() {
 }
 
 if (require.main === module) {
+    installProcessFailureHandlers();
     startServer();
 }
 
