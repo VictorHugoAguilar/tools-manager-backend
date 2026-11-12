@@ -9,6 +9,7 @@ const { loadHeartbeatSummary } = require("../telemetry/heartbeat");
 const { findEvents, parseEventFilters, serializeEvent } = require("../telemetry/eventsQuery");
 const { auditWorker } = require("../audit/outboxWorker");
 const { activeUserWindowMinutes, countActiveUsers } = require("../telemetry/activeUsers");
+const { HISTORY_ACTIONS } = require("../audit/historyActions");
 
 function parseMetricsFilters(query) {
     const invalid = () => Object.assign(new Error("Los filtros de métricas no son válidos."), { statusCode: 400 });
@@ -214,6 +215,35 @@ function createMonitoringRouter(options = {}) {
                     ...(event.boxId ? { boxId: event.boxId } : {}),
                     ...(event.categoryId ? { categoryId: event.categoryId } : {}) };
             });
+            res.set("Cache-Control", "no-store");
+            return res.json({ events, limit: 25 });
+        } catch (error) {
+            return next(error);
+        }
+    });
+
+    router.get("/audit-history/:scope", async (req, res, next) => {
+        const { scope } = req.params;
+        if (!Object.hasOwn(HISTORY_ACTIONS, scope) || Object.keys(req.query).length) {
+            return res.status(400).json({ message: "La consulta de historial no es válida." });
+        }
+        try {
+            const db = getDatabase();
+            await db.collection("auditEvents").doc(randomUUID()).create({
+                schemaVersion: 1, action: "monitoring.audit-history.accessed",
+                actorId: req.authUser.id, scope, occurredAt: Timestamp.now()
+            });
+            const actions = HISTORY_ACTIONS[scope];
+            const batches = [];
+            for (let i = 0; i < actions.length; i += 30) batches.push(actions.slice(i, i + 30));
+            const snapshots = await Promise.all(batches.map((batch) => db.collection("auditEvents")
+                .where("action", "in", batch).orderBy("occurredAt", "desc").limit(25).get()));
+            const events = snapshots.flatMap((snapshot) => snapshot.docs.map((doc) => {
+                const event = doc.data();
+                return { eventId: doc.id, action: event.action, actorId: event.actorId,
+                    targetId: event.targetId, occurredAt: event.occurredAt };
+            })).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.eventId.localeCompare(a.eventId))
+                .slice(0, 25);
             res.set("Cache-Control", "no-store");
             return res.json({ events, limit: 25 });
         } catch (error) {

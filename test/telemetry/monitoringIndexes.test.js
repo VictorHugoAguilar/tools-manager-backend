@@ -29,6 +29,9 @@ test("monitoring index configuration covers every supported structured query", (
     assert.ok(hasIndex("auditEvents", [
         ["auditScope", "ASCENDING"], ["occurredAt", "DESCENDING"]
     ]), "Falta el índice para el historial de almacenamiento");
+    assert.ok(hasIndex("auditEvents", [
+        ["action", "ASCENDING"], ["occurredAt", "DESCENDING"]
+    ]), "Falta el índice para los historiales por ámbito");
     for (const field of ["targetId", "toolId"]) {
         assert.ok(hasIndex("auditEvents", [
             [field, "ASCENDING"], ["action", "ASCENDING"], ["occurredAt", "DESCENDING"]

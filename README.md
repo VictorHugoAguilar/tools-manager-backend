@@ -453,6 +453,14 @@ automáticamente a una herramienta y no sustituyen a la auditoría.
 La búsqueda local emite `frontend.tools.search.completed` después de un segundo
 sin cambios; no registra el texto, resultados, ruta ni identificador de herramienta.
 Estas señales de búsqueda también son telemetría potencialmente descartable.
+Monitorización incluye consultas de auditoría por ámbitos de herramientas,
+listas de tareas, tareas, dibujo, catálogos y usuarios/roles mediante
+`GET /api/monitoring/audit-history/:scope`. Requieren `monitoring:app`, registran
+el acceso antes de leer y muestran hasta 25 eventos publicados por ámbito. El
+acceso es global e incluye identificadores y actores de tareas y dibujos privados.
+Se necesita desplegar el índice de `auditEvents` por `action` y `occurredAt`.
+Las vistas derivadas y preferencias locales no generan auditoría propia; las
+exportaciones de reportes tampoco están auditadas actualmente.
 En Categorías el seguimiento corresponde a herramientas, no a una entidad de
 categoría. En Lista de tareas y Tareas, el panel Seguimiento de tareas permite
 seleccionar una tarea y consultar su auditoría, adicional a la actividad existente.
