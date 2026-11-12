@@ -35,6 +35,8 @@ function serializeEvent(doc) {
         ...(data.traceId ? { traceId: data.traceId } : {}),
         ...(data.connectionId ? { connectionId: data.connectionId } : {}),
         ...(data.http ? { http: data.http } : {}),
+        ...(data.page ? { page: data.page } : {}),
+        ...(typeof data.actorId === "string" && data.actorId ? { actorId: data.actorId } : {}),
         ...(typeof data.durationMs === "number" ? { durationMs: data.durationMs } : {})
     };
 }

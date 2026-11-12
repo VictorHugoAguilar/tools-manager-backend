@@ -38,14 +38,14 @@ test("event filters reject invalid ranges, types, cursors and arbitrary fields",
     ]) assert.throws(() => parseEventFilters(bad, now), { statusCode: 400 });
 });
 
-test("query constrains environment and filters, limits and paginates without exposing actor", async () => {
+test("query constrains environment and filters, limits and paginates and identifies the actor", async () => {
     const events = Array.from({ length: 26 }, () => doc());
     const calls = [];
     const filters = parseEventFilters({ ...request, service: "backend", level: "ERROR" }, now);
     const result = await findEvents(database(events, calls), filters, "test");
     assert.equal(result.events.length, 25);
     assert.equal(result.nextCursor, events[24].id);
-    assert.equal(result.events[0].actorId, undefined);
+    assert.equal(result.events[0].actorId, "private");
     assert.ok(calls.some((call) => call[1] === "environment" && call[3] === "test"));
     assert.ok(calls.some((call) => call[1] === "service" && call[3] === "backend"));
     assert.deepEqual(calls.at(-1), ["limit", 26]);

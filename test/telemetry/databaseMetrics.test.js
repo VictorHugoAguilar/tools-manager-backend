@@ -81,3 +81,27 @@ test("el catálogo acepta las medidas de rendimiento del navegador solo con dura
     }
     assert.equal(normalizeFrontendEvent({ ...base, eventName: "frontend.performance.long_task", url: "/x" }, context), null);
 });
+
+test("failed browser requests carry only a normalized route, method, status and page", () => {
+    const { normalizeFrontendEvent } = require("../../src/telemetry/telemetry");
+    const context = { environment: "test", actorId: "user-1", instanceId: "i-1" };
+    const base = {
+        schemaVersion: 1, eventId: "6f1c1f5e-0f0a-4a5e-8d2b-1b2c3d4e5f60",
+        occurredAt: "2026-11-12T10:00:00.000Z", eventName: "frontend.api.request.failed"
+    };
+    const event = normalizeFrontendEvent({
+        ...base, http: { method: "POST", route: "/api/tools/:id/assign", statusCode: 500 }, page: "/inventario/:id"
+    }, context);
+    assert.deepEqual(event.http, { method: "POST", route: "/api/tools/:id/assign", statusCode: 500 });
+    assert.equal(event.page, "/inventario/:id");
+    assert.equal(event.actorId, "user-1");
+    for (const bad of [
+        { http: { method: "GET", route: "/api/tools/abc123?x=1", statusCode: 500 } },
+        { http: { method: "GET", route: "/api/tools/Ab9", statusCode: 500 } },
+        { http: { method: "TRACE", route: "/api/tools", statusCode: 500 } },
+        { http: { method: "GET", route: "/api/tools", statusCode: 700 } },
+        { http: { method: "GET", route: "/api/tools", statusCode: 500, body: "x" } },
+        { page: "/inventario/9f8e7d" },
+        { page: "/a?token=1" }
+    ]) assert.equal(normalizeFrontendEvent({ ...base, ...bad }, context), null);
+});

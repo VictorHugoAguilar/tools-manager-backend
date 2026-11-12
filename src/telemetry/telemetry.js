@@ -52,9 +52,14 @@ function sampleKept(event, rate) {
     return Math.random() < rate;
 }
 
+// Solo segmentos literales en minúsculas o :id; nunca identificadores, consultas ni parámetros.
+const SEGMENT = "(?:[a-z][a-z-]{0,30}|:id)";
+const API_ROUTE_PATTERN = new RegExp(`^/api/[a-z][a-z-]{0,30}(?:/${SEGMENT}){0,6}$`);
+const PAGE_PATTERN = new RegExp(`^/(?:${SEGMENT}(?:/${SEGMENT}){0,6})?$`);
+
 function normalizeFrontendEvent(input, { environment, actorId, instanceId }) {
     if (!input || typeof input !== "object" || Array.isArray(input)) return null;
-    const allowed = new Set(["schemaVersion", "eventId", "occurredAt", "eventName", "traceId", "durationMs"]);
+    const allowed = new Set(["schemaVersion", "eventId", "occurredAt", "eventName", "traceId", "durationMs", "http", "page"]);
     if (Object.keys(input).some((key) => !allowed.has(key))) return null;
     if (typeof input.eventName !== "string" || !Object.hasOwn(FRONTEND_EVENTS, input.eventName)) return null;
     const definition = FRONTEND_EVENTS[input.eventName];
@@ -67,6 +72,15 @@ function normalizeFrontendEvent(input, { environment, actorId, instanceId }) {
     if (input.durationMs !== undefined &&
         (typeof input.durationMs !== "number" || !Number.isFinite(input.durationMs) ||
             input.durationMs < 0 || input.durationMs > 86_400_000)) return null;
+    if (input.page !== undefined && !(typeof input.page === "string" && PAGE_PATTERN.test(input.page))) return null;
+    if (input.http !== undefined) {
+        const http = input.http;
+        if (!http || typeof http !== "object" || Array.isArray(http) ||
+            Object.keys(http).some((key) => !["method", "route", "statusCode"].includes(key)) ||
+            !["GET", "POST", "PUT", "PATCH", "DELETE"].includes(http.method) ||
+            typeof http.route !== "string" || !API_ROUTE_PATTERN.test(http.route) ||
+            !Number.isInteger(http.statusCode) || http.statusCode < 0 || http.statusCode > 599) return null;
+    }
     return {
         schemaVersion: 1,
         eventId: input.eventId.toLowerCase(),
@@ -78,6 +92,8 @@ function normalizeFrontendEvent(input, { environment, actorId, instanceId }) {
         eventName: input.eventName,
         ...(input.traceId ? { traceId: input.traceId.toLowerCase() } : {}),
         ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
+        ...(input.http ? { http: { method: input.http.method, route: input.http.route, statusCode: input.http.statusCode } } : {}),
+        ...(input.page ? { page: input.page } : {}),
         actorId,
         instanceId
     };

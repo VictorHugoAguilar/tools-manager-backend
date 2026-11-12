@@ -102,7 +102,7 @@ test("monitoring requires permission and a durable audit before reading bounded 
         assert.equal(payload.heartbeats.resources.backend[0].process.cpuPercent, 123);
         assert.equal(payload.heartbeats.resources.backend[0].disk.availableBytes, 35);
         assert.equal(payload.events[0].eventId, "event-id");
-        assert.equal(payload.events[0].actorId, undefined);
+        assert.equal(payload.events[0].actorId, "private-user");
         assert.equal(payload.events[0].connectionId, "connection-id");
         assert.equal(calls[0][0], "audit");
         assert.equal(calls[0][2].actorId, "real-user");
