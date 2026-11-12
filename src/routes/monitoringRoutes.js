@@ -106,8 +106,30 @@ function createMonitoringRouter(options = {}) {
             } catch (error) {
                 console.error("No se pudo consultar el recuento de eventos por nivel.", error);
             }
+            let frontendActivity = null;
+            try {
+                const since = Timestamp.fromMillis(now.getTime() - periods[period]);
+                const base = () => db.collection("monitoringEvents")
+                    .where("environment", "==", manager.environment)
+                    .where("service", "==", "frontend");
+                const [total, errors, last] = await Promise.all([
+                    base().where("receivedAt", ">=", since).where("receivedAt", "<=", Timestamp.fromDate(now)).count().get(),
+                    base().where("level", "==", "ERROR").where("receivedAt", ">=", since)
+                        .where("receivedAt", "<=", Timestamp.fromDate(now)).count().get(),
+                    base().where("receivedAt", ">=", since).where("receivedAt", "<=", Timestamp.fromDate(now))
+                        .orderBy("receivedAt", "desc").limit(1).get()
+                ]);
+                frontendActivity = {
+                    events: total.data().count,
+                    errors: errors.data().count,
+                    lastEventAt: last.docs[0]?.data().receivedAt?.toDate().toISOString() ?? null
+                };
+            } catch (error) {
+                console.error("No se pudo consultar la actividad del frontend.", error);
+            }
             res.set("Cache-Control", "no-store");
             return res.json({
+                frontendActivity,
                 period,
                 generatedAt: now.toISOString(),
                 events,
