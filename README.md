@@ -733,6 +733,15 @@ Firestore no aplica TTL automáticamente sin dicha configuración. Los ajustes
 `TELEMETRY_FLUSH_INTERVAL_MS`, `TELEMETRY_RETRY_MAX_ATTEMPTS` y
 `TELEMETRY_RETRY_BASE_DELAY_MS` controlan el recolector.
 
+`TELEMETRY_SAMPLE_DEBUG` y `TELEMETRY_SAMPLE_INFO` (0 a 1, por defecto 1 = sin
+muestreo) conservan esa proporción de eventos DEBUG/INFO. Un `traceId` se
+conserva o se descarta entero, por lo que las trazas muestreadas no quedan
+incompletas; sin `traceId` el muestreo es aleatorio. WARN y ERROR **nunca** se
+muestrean, ni las métricas agregadas ni la auditoría durable. Un valor no válido
+equivale a 1. Los eventos muestreados se cuentan en `sampledOutByLevel` del
+recolector y no figuran como descartados por saturación. Al muestrear, los
+recuentos de eventos INFO/DEBUG dejan de ser exactos.
+
 ### Autenticación y usuarios
 
 Las cuentas de la aplicación usan credenciales propias, verificadas por la API; no se usa Firebase Authentication ni inicio de sesión de Google para identificar a los usuarios. Los perfiles y hashes de contraseña (scrypt con salt aleatorio) están en `authUsers`; los roles y permisos en `authRoles` y `authPermissions`; las sesiones y los tokens de recuperación se guardan como hashes en `authSessions` y `authPasswordResets`. No se añade una base SQL ni se modifica el almacenamiento de herramientas/taller. La carga existente de imágenes puede usar una identidad anónima de Firebase Storage según la configuración del bucket.

@@ -49,3 +49,23 @@ test("el Admin SDK mide get y set una sola vez por operación", async () => {
     setDatabaseRecorder(null);
     assert.deepEqual(calls, [false, false]);
 });
+
+test("el muestreo solo afecta a DEBUG/INFO y conserva trazas completas", () => {
+    const { TelemetryQueue } = require("../../src/telemetry/telemetry");
+    const event = (level, traceId) => ({ level, traceId });
+    const none = new TelemetryQueue(100, { DEBUG: "0", INFO: "0" });
+    assert.equal(none.enqueue(event("INFO", "t")), false);
+    assert.equal(none.enqueue(event("DEBUG")), false);
+    assert.equal(none.enqueue(event("WARN")), true);
+    assert.equal(none.enqueue(event("ERROR")), true);
+    assert.deepEqual(none.sampledOut, { DEBUG: 1, INFO: 1 });
+    assert.equal(none.dropped.INFO, 0);
+    const half = new TelemetryQueue(100, { INFO: "0.5" });
+    for (let i = 0; i < 40; i += 1) {
+        const trace = `trace-${i}`;
+        const first = half.enqueue(event("INFO", trace));
+        assert.equal(half.enqueue(event("INFO", trace)), first);
+    }
+    assert.ok(half.items.length > 0 && half.items.length < 80);
+    assert.equal(new TelemetryQueue(1, { INFO: "abc" }).sampleRates.INFO, 1);
+});

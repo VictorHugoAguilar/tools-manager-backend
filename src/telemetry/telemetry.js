@@ -1,4 +1,4 @@
-const { randomUUID } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
 const { getFirestore, Timestamp } = require("firebase-admin/firestore");
 const { getAdminApp } = require("../config/firebaseAdmin");
 const { HttpMetrics } = require("./httpMetrics");
@@ -28,6 +28,22 @@ const ACTION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 function positiveInteger(value, fallback, max) {
     const parsed = Number(value);
     return Number.isInteger(parsed) && parsed > 0 && parsed <= max ? parsed : fallback;
+}
+
+function sampleRate(value) {
+    if (value === undefined || value === "") return 1;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : 1;
+}
+
+// Un traceId se conserva o descarta entero para no dejar trazas incompletas.
+function sampleKept(event, rate) {
+    if (rate >= 1) return true;
+    if (rate <= 0) return false;
+    if (typeof event.traceId === "string" && event.traceId) {
+        return createHash("sha256").update(event.traceId).digest().readUInt32BE(0) / 0x100000000 < rate;
+    }
+    return Math.random() < rate;
 }
 
 function normalizeFrontendEvent(input, { environment, actorId, instanceId }) {
@@ -62,16 +78,23 @@ function normalizeFrontendEvent(input, { environment, actorId, instanceId }) {
 }
 
 class TelemetryQueue {
-    constructor(capacity) {
+    constructor(capacity, sampleRates = {}) {
         this.capacity = capacity;
         this.items = [];
         this.dropped = { DEBUG: 0, INFO: 0, WARN: 0, ERROR: 0 };
+        this.sampledOut = { DEBUG: 0, INFO: 0 };
+        this.sampleRates = { DEBUG: sampleRate(sampleRates.DEBUG), INFO: sampleRate(sampleRates.INFO) };
     }
 
     enqueue(event) {
         if (!Object.hasOwn(LEVEL_PRIORITY, event.level) ||
             Buffer.byteLength(JSON.stringify(event)) > MAX_EVENT_BYTES) {
             throw new Error("Evento de telemetría no válido.");
+        }
+        // WARN y ERROR nunca se muestrean.
+        if (Object.hasOwn(this.sampleRates, event.level) && !sampleKept(event, this.sampleRates[event.level])) {
+            this.sampledOut[event.level] += 1;
+            return false;
         }
         if (this.items.length >= this.capacity) {
             let lowestIndex = 0;
@@ -129,7 +152,10 @@ class TelemetryManager {
         this.instanceId = options.instanceId || randomUUID();
         this.service = options.service || "backend";
         this.queue = new TelemetryQueue(options.capacity ||
-            positiveInteger(process.env.TELEMETRY_QUEUE_MAX_ITEMS, 5000, 100000));
+            positiveInteger(process.env.TELEMETRY_QUEUE_MAX_ITEMS, 5000, 100000), options.sampleRates || {
+                DEBUG: process.env.TELEMETRY_SAMPLE_DEBUG,
+                INFO: process.env.TELEMETRY_SAMPLE_INFO
+            });
         this.batchSize = options.batchSize || positiveInteger(process.env.TELEMETRY_BATCH_MAX_ITEMS, 200, 500);
         this.intervalMs = options.intervalMs || positiveInteger(process.env.TELEMETRY_FLUSH_INTERVAL_MS, 1000, 60000);
         this.sink = options.sink || new FirestoreTelemetrySink();
@@ -479,6 +505,8 @@ class TelemetryManager {
             queuePending: this.queue.items.length,
             queueCapacity: this.queue.capacity,
             droppedByLevel: { ...this.queue.dropped },
+            sampledOutByLevel: { ...this.queue.sampledOut },
+            sampleRates: { ...this.queue.sampleRates },
             failedEvents: this.failedEvents,
             accessDeniedSuppressed: this.accessDeniedSuppressed,
             lastSuccessfulFlushAt: this.lastSuccessfulFlushAt,
