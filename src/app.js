@@ -1,6 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const { toolRouter } = require("./routes/toolRoutes");
+const { moduleDataRouter } = require("./routes/moduleDataRoutes");
 const { technicianRouter } = require("./routes/technicianRoutes");
 const { locationRouter } = require("./routes/locationRoutes");
 const { toolTypeRouter } = require("./routes/toolTypeRoutes");
@@ -24,11 +25,18 @@ const { createTelemetryMiddleware } = require("./middleware/telemetryMiddleware"
 const {
     requireAuthenticated,
     requireCsrf,
+    requireModuleWhenEnabled,
     requirePermission
 } = require("./middleware/authMiddleware");
 const cors = require("cors");
 
 function createApp() {
+    if (process.env.MODULE_PERMISSIONS_ENABLED === "true" && process.env.SECURE_ADMIN_ENABLED !== "true") {
+        throw new Error("MODULE_PERMISSIONS_ENABLED requiere SECURE_ADMIN_ENABLED=true.");
+    }
+    if (process.env.MODULE_PERMISSIONS_ENABLED === "true") {
+        throw new Error("La protección por módulos aún no está lista para activarse.");
+    }
     const app = express();
     const allowedOrigins = (process.env.FRONTEND_ORIGINS || "http://localhost:4200")
         .split(",")
@@ -106,18 +114,33 @@ function createApp() {
             ? requireCsrf(req, res, next)
             : next()
     ];
+    const catalogPolicy = (readModules, writeModules) => {
+        const read = requireModuleWhenEnabled(...readModules);
+        const write = requireModuleWhenEnabled(...writeModules);
+        return (req, res, next) => (req.method === "GET" ? read : write)(req, res, next);
+    };
+    const workshop = requireModuleWhenEnabled("workshopStorage");
+    const workshopCategories = requireModuleWhenEnabled("workshopStorage", "settings");
     app.use("/api/tools", protectApplicationApi, toolRouter);
-    app.use("/api/technicians", protectApplicationApi, technicianRouter);
-    app.use("/api/locations", protectApplicationApi, locationRouter);
-    app.use("/api/tool-types", protectApplicationApi, toolTypeRouter);
-    app.use("/api/tags", protectApplicationApi, tagRouter);
-    app.use("/api/storage-boxes", protectApplicationApi, storageBoxRouter);
-    app.use("/api/shelf-config", protectApplicationApi, shelfConfigRouter);
-    app.use("/api/workshop-storage", protectApplicationApi, workshopStorageRouter);
-    app.use("/api/task-board", protectApplicationApi, taskBoardRouter);
-    app.use("/api/todo-list", protectApplicationApi, todoListRouter);
-    app.use("/api/drawing", protectApplicationApi, drawingRouter);
-    app.use("/api/exams", protectApplicationApi, createExamRouter());
+    app.use("/api/module-data", protectApplicationApi, moduleDataRouter);
+    app.use("/api/technicians", protectApplicationApi,
+        catalogPolicy(["technicians", "settings"], ["technicians", "settings"]), technicianRouter);
+    app.use("/api/locations", protectApplicationApi,
+        catalogPolicy(["settings"], ["settings"]), locationRouter);
+    app.use("/api/tool-types", protectApplicationApi,
+        catalogPolicy(["settings"], ["settings"]), toolTypeRouter);
+    app.use("/api/tags", protectApplicationApi,
+        catalogPolicy(["settings"], ["settings"]), tagRouter);
+    app.use("/api/storage-boxes", protectApplicationApi, requireModuleWhenEnabled("storage"), storageBoxRouter);
+    app.use("/api/shelf-config", protectApplicationApi,
+        catalogPolicy(["storage", "settings"], ["settings"]), shelfConfigRouter);
+    app.use("/api/workshop-storage", protectApplicationApi,
+        (req, res, next) => (req.path === "/categories" || req.path.startsWith("/categories/")
+            ? workshopCategories : workshop)(req, res, next), workshopStorageRouter);
+    app.use("/api/task-board", protectApplicationApi, requireModuleWhenEnabled("taskBoard"), taskBoardRouter);
+    app.use("/api/todo-list", protectApplicationApi, requireModuleWhenEnabled("todoList"), todoListRouter);
+    app.use("/api/drawing", protectApplicationApi, requireModuleWhenEnabled("drawing"), drawingRouter);
+    app.use("/api/exams", protectApplicationApi, requireModuleWhenEnabled("exams"), createExamRouter());
 
     app.use((err, _req, res, _next) => {
         if (!err.statusCode || err.statusCode >= 500) console.error(err);

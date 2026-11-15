@@ -457,6 +457,8 @@ async function listRoles() {
     return Object.entries(snapshot.val() || {}).map(([id, role]) => ({
         id,
         name: role.name,
+        description: role.description || "",
+        active: role.active !== false,
         permissions: Object.keys(role.permissions || {}).filter((key) => role.permissions[key])
     }));
 }

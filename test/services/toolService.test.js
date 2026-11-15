@@ -60,6 +60,13 @@ function createToolServiceHarness(initialTools = {}, { cacheEnabled = true } = {
                 ...value
             };
         },
+        async runTransaction(reference, change) {
+            const toolId = reference.path.replace("tools/", "");
+            const next = change(store.tools[toolId] ?? null);
+            if (next === undefined) return { committed: false, snapshot: createSnapshot(null) };
+            store.tools[toolId] = next;
+            return { committed: true, snapshot: createSnapshot(next) };
+        },
         async remove(reference) {
             const toolId = reference.path.replace("tools/", "");
             delete store.tools[toolId];
@@ -184,6 +191,22 @@ test("updateState changes only the state field in the returned tool", async () =
 
     assert.equal(result.state, "Prestada");
     assert.equal(store.tools.a1.state, "Prestada");
+});
+
+test("updateLocation changes only the location and invalidates cached lists and details", async () => {
+    const original = createTool({ id: "a1", name: "Sierra", location: "Old" });
+    const { toolService, store, reads } = createToolServiceHarness({ a1: original });
+    await toolService.findAll();
+    await toolService.findById("a1");
+    store.tools.a1 = { ...store.tools.a1, name: "Concurrent" };
+    const updated = await toolService.updateLocation("a1", "New", "actor");
+    assert.equal(updated.name, "Concurrent");
+    assert.equal(updated.location, "New");
+    assert.equal((await toolService.findById("a1")).location, "New");
+    assert.equal((await toolService.findAll())[0].name, "Concurrent");
+    assert.equal(reads.all, 2);
+    assert.equal(reads.byId, 2);
+    assert.equal(await toolService.updateLocation("missing", "New", "actor"), null);
 });
 
 test("updateImageUrl clears or updates the image url", async () => {

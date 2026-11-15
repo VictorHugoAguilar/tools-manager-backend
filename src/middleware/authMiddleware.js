@@ -57,6 +57,23 @@ function requireModulePermission(moduleId) {
     };
 }
 
+function requireModuleWhenEnabled(...moduleIds) {
+    const modules = moduleIds.map((id) => {
+        const module = MODULES.find((item) => item.id === id && item.active);
+        if (!module) throw new TypeError("El módulo protegido no es válido.");
+        return module;
+    });
+    if (!modules.length) throw new TypeError("Debe indicarse al menos un módulo.");
+    return (req, res, next) => {
+        if (process.env.MODULE_PERMISSIONS_ENABLED !== "true") return next();
+        if (!req.authUser) return unauthorized(res);
+        if (!modules.some((module) => req.authUser.permissions?.includes(module.permission))) {
+            return res.status(403).json({ message: "No tienes permisos para realizar esta operación." });
+        }
+        return next();
+    };
+}
+
 function requireCsrf(req, res, next) {
     const cookies = parseCookies(req.headers.cookie);
     const csrfCookie = cookies[CSRF_COOKIE];
@@ -74,5 +91,6 @@ module.exports = {
     requireAuthenticated,
     requireCsrf,
     requireModulePermission,
+    requireModuleWhenEnabled,
     requirePermission
 };

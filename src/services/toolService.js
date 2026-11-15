@@ -3,6 +3,7 @@ const {
     push,
     ref,
     remove: removeValue,
+    runTransaction,
     set,
     update
 } = require("firebase/database");
@@ -302,6 +303,24 @@ async function changeState(id, state, actorId) {
     };
 }
 
+async function changeLocation(id, location, actorId) {
+    if (!id || typeof id !== "string") return null;
+    if (isToolAuditEnabled()) {
+        return transactTool({
+            id, actorId, action: "tool.updated",
+            change: (current) => {
+                if (!current) return null;
+                const updated = { ...current, id, location };
+                return { value: updated, result: updated };
+            }
+        });
+    }
+    const result = await runTransaction(ref(getDatabaseInstance(), `tools/${id}`), (current) =>
+        current ? { ...current, location } : undefined
+    );
+    return result.committed ? { ...result.snapshot.val(), id } : null;
+}
+
 async function changeImageUrl(id, urlSrc, actorId) {
     if (!id || typeof id !== "string") {
         return null;
@@ -370,5 +389,6 @@ module.exports = {
     update: (id, toolData, actorId) => withInvalidation(id, () => updateTool(id, toolData, actorId)),
     updateState: (id, state, actorId) => withInvalidation(id, () => changeState(id, state, actorId)),
     updateImageUrl: (id, urlSrc, actorId) => withInvalidation(id, () => changeImageUrl(id, urlSrc, actorId)),
+    updateLocation: (id, location, actorId) => withInvalidation(id, () => changeLocation(id, location, actorId)),
     remove: (id, actorId) => withInvalidation(id, () => removeTool(id, actorId))
 };

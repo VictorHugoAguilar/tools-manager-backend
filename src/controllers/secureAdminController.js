@@ -1,13 +1,17 @@
 const { randomUUID } = require("node:crypto");
+const { getAdminDatabase } = require("../config/firebaseAdmin");
 const { getPublicUser } = require("./authController");
 const { getProfileWithPermissions } = require("../services/userService");
 const { validateUserAvatar } = require("../services/userAvatarService");
 const { uploadImageForUser, deleteImageByUrl } = require("../services/toolImageStorageService");
 const {
     createManagedUser, updateManagedUser, assignUserRole, setManagedUserStatus,
-    resetManagedUserPassword, deleteManagedUser, setManagedUserAvatar
+    resetManagedUserPassword, deleteManagedUser, setManagedUserAvatar, updateUserModuleExceptions
 } = require("../permissions/permissionManagement");
-const { updateLegacyRolePermissions } = require("../permissions/roleManagement");
+const { calculateEffectivePermissions } = require("../permissions/effectivePermissions");
+const {
+    updateLegacyRolePermissions, createPermissionRole, updatePermissionRole, deactivatePermissionRole
+} = require("../permissions/roleManagement");
 
 function handle(handler) {
     return (req, res, next) => Promise.resolve(handler(req, res)).catch(next);
@@ -39,6 +43,14 @@ async function removePreviousImage(url, userId) {
     if (!await deleteImageByUrl(url)) {
         console.warn("No se pudo eliminar la imagen anterior del usuario.", { userId });
     }
+}
+
+function publicRole(role) {
+    return {
+        id: role.id, name: role.name, description: role.description || "",
+        active: role.active !== false,
+        permissions: Object.keys(role.permissions || {}).filter((id) => role.permissions[id] === true)
+    };
 }
 
 const secureAdminController = {
@@ -121,6 +133,48 @@ const secureAdminController = {
             ...context(req), roleId: req.params.roleId, permissions: req.body.permissions
         });
         return role ? res.json({ role }) : res.status(404).json({ message: "Rol no encontrado." });
+    }),
+
+    createRole: handle(async (req, res) => {
+        onlyFields(req.body, ["id", "name", "description", "permissions", "sourceRoleId"]);
+        const role = await createPermissionRole({
+            ...context(req), roleId: req.body.id, name: req.body.name,
+            description: req.body.description, permissions: req.body.permissions, sourceRoleId: req.body.sourceRoleId
+        });
+        if (!role) throw Object.assign(new Error("No se pudo confirmar la creación del perfil."), { statusCode: 503 });
+        return res.status(201).json({ role: publicRole(role) });
+    }),
+
+    updateRoleProfile: handle(async (req, res) => {
+        onlyFields(req.body, ["name", "description", "permissions"]);
+        const role = await updatePermissionRole({ ...context(req), roleId: req.params.roleId, ...req.body });
+        return role ? res.json({ role: publicRole(role) }) : res.status(404).json({ message: "Rol no encontrado." });
+    }),
+
+    deactivateRole: handle(async (req, res) => {
+        const role = await deactivatePermissionRole({ ...context(req), roleId: req.params.roleId });
+        return role ? res.json({ role: publicRole(role) }) : res.status(404).json({ message: "Rol no encontrado." });
+    }),
+
+    getUserExceptions: handle(async (req, res) => {
+        const user = await getProfileWithPermissions(req.params.id);
+        if (!user) return res.status(404).json({ message: "Usuario no encontrado o con rol inactivo." });
+        if (user.permissions.some((id) => !req.authUser.permissions.includes(id))) {
+            throw Object.assign(new Error("No puedes administrar permisos que no posees."), { statusCode: 403 });
+        }
+        const snapshot = await getAdminDatabase().ref("authUsers").child(req.params.id).child("permissionExceptions").get();
+        const exceptions = snapshot.val() ?? {};
+        calculateEffectivePermissions({}, exceptions);
+        res.set("Cache-Control", "no-store");
+        return res.json({ exceptions });
+    }),
+
+    updateUserExceptions: handle(async (req, res) => {
+        onlyFields(req.body, ["exceptions"]);
+        const result = await updateUserModuleExceptions({
+            ...context(req), userId: req.params.id, exceptions: req.body.exceptions
+        });
+        return result ? res.json({ exceptions: result.exceptions }) : res.status(404).json({ message: "Usuario no encontrado." });
     })
 };
 

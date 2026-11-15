@@ -99,7 +99,9 @@ function getPublicUser(user) {
         roleId: user.roleId,
         roleName: user.roleName,
         isActive: user.isActive,
-        permissions: user.permissions
+        permissions: user.permissions,
+        secureAdministration: process.env.SECURE_ADMIN_ENABLED === "true",
+        modulePermissionsEnabled: process.env.MODULE_PERMISSIONS_ENABLED === "true"
     };
 }
 

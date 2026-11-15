@@ -841,31 +841,29 @@ publicadores de la outbox deben soportar ese tipo de evento y debe completarse
 la protección administrativa y de módulos.
 La asignación preparatoria de roles también revalida la sesión y los permisos
 del gestor dentro de la transacción, impide cambios propios y roles inactivos,
-protege los administradores y audita el cambio. Todavía no está conectada al
-endpoint existente. Este último rechaza cambios del rol propio, pero los demás
-flujos administrativos existentes aún requieren endurecimiento frente a
-escaladas y cambios concurrentes. El endpoint de permisos también rechaza
-modificar el rol de la sesión, pero esa comprobación usa el perfil autenticado,
-no una revalidación transaccional.
-Existe una alternativa interna para ese endpoint que revalida la sesión y la
-delegación en la transacción, conserva los permisos de módulos y audita el
-resultado. Todavía no está conectada a la ruta existente.
-Las operaciones internas preparatorias de alta y restablecimiento administrativo
-de contraseñas revalidan la sesión y guardan el cambio y su auditoría en la misma
-transacción; el restablecimiento propio debe hacerse desde el perfil. Los eventos
-no incluyen contraseñas, hashes, nombres ni correos. Estas operaciones tampoco
-están conectadas a los endpoints existentes.
-También se han preparado operaciones auditadas para editar datos, cambiar el
-estado o eliminar usuarios. Comprueban la delegación y protegen al último
-administrador dentro de la transacción; los cambios de estado revocan las
-sesiones mediante su versión. La eliminación devuelve la imagen observada en
-la transacción, pero su limpieza en Storage, incluidos fallos ambiguos, sigue
-pendiente de integración. Estas operaciones tampoco tienen endpoints.
-En estas operaciones preparatorias y en la gestión interna de perfiles,
+protege los administradores y audita el cambio.
+Con `SECURE_ADMIN_ENABLED=true`, los endpoints administrativos existentes de
+alta, edición, cambio de rol o estado, contraseña, imagen, eliminación y permisos
+heredados usan las operaciones transaccionales seguras. La sesión y la delegación
+se comprueban dentro de la transacción, que guarda también la auditoría; el worker
+se inicia automáticamente. Los cambios de estado y contraseña revocan sesiones
+mediante su versión. El gestor debe tener `app:access`, `users:manage` y
+`roles:manage`; la cuenta propia se modifica desde Mi perfil. Los eventos no
+incluyen contraseñas, hashes, nombres, correos ni URL de imágenes.
+La limpieza de imágenes ocurre después de confirmar la transacción. Si se pierde
+la respuesta de un cambio de imagen, se conserva la imagen subida para evitar
+borrar una imagen que podría estar en uso; puede requerir limpieza posterior en
+Storage. Si falla la eliminación posterior se registra un aviso. Antes de activar
+la opción, despliega en todos los publicadores una versión compatible con sus
+eventos y comprueba el límite de 8 MiB de la raíz de RTDB y el funcionamiento
+del worker. Por defecto está desactivada: con ella desactivada siguen vigentes
+los endpoints anteriores y sus limitaciones de seguridad.
+En estas operaciones y en la gestión interna de perfiles,
 asignaciones y excepciones, un gestor solo puede administrar o conceder permisos
 que posee efectivamente, después de sus propias excepciones. También se comprueban
 los permisos efectivos anteriores y posteriores de los usuarios afectados,
-incluidos los inactivos. Esta política aún no se aplica a los endpoints existentes.
+incluidos los inactivos. Esta política solo se aplica a los endpoints existentes
+con `SECURE_ADMIN_ENABLED=true`.
 Las operaciones internas preparatorias de perfiles permiten crear, duplicar,
 editar y desactivar roles sin usuarios asignados, con auditoría transaccional
 `role.profile.created`, `role.profile.updated` y `role.profile.deactivated`.
@@ -876,6 +874,9 @@ publicadores deben aceptar estos eventos, el worker debe estar activo y deben
 asegurarse los flujos administrativos existentes. El endpoint actual de permisos
 por rol conserva las entradas de módulos que no administra. Las operaciones usan la
 transacción de raíz de la outbox y su límite de 8 MiB.
+El servidor WebSocket de dibujo mantiene únicamente sus comprobaciones actuales
+de sesión y acceso al documento; no aplica permisos de módulo. Una revocación del
+módulo no cierra por sí sola las conexiones colaborativas existentes.
 La planificación de migración de roles es solo una función sin efectos sobre la
 base: conserva permisos explícitos, omite perfiles ya configurados explícitamente
 y no concede monitorización ni administración.
