@@ -170,3 +170,30 @@ test("authentication cache evicts least-recently-used sessions at its limit", as
     await h.service.resolveSession("token-0");
     assert.deepEqual(h.reads, { sessions: 502, profiles: 502 });
 });
+
+test("explicit invalidation forces sessions to be revalidated", async (t) => {
+    const h = harness(t);
+    h.add("token");
+    assert.ok(await h.service.resolveSession("token"));
+    h.setProfile({ id: "user", isActive: true, sessionVersion: 1, permissions: [] });
+    h.service.clearAuthenticationCache();
+    assert.deepEqual((await h.service.resolveSession("token")).profile.permissions, []);
+    assert.deepEqual(h.reads, { sessions: 2, profiles: 2 });
+});
+
+test("invalidation prevents an older in-flight authentication from repopulating the cache", async (t) => {
+    const h = harness(t);
+    h.add("token");
+    let release;
+    h.setProfileReader(() => new Promise((resolve) => { release = resolve; }));
+    const stale = h.service.resolveSession("token");
+    await new Promise((resolve) => setImmediate(resolve));
+    h.service.clearAuthenticationCache();
+    h.setProfile({ id: "user", isActive: true, sessionVersion: 1, permissions: [] });
+    h.setProfileReader(null);
+    assert.deepEqual((await h.service.resolveSession("token")).profile.permissions, []);
+    release({ id: "user", isActive: true, sessionVersion: 1, permissions: ["app:access"] });
+    assert.ok(await stale);
+    assert.deepEqual((await h.service.resolveSession("token")).profile.permissions, []);
+    assert.deepEqual(h.reads, { sessions: 2, profiles: 2 });
+});

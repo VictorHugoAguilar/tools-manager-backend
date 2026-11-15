@@ -161,6 +161,7 @@ test("administrative controllers pass the authenticated actor through each user 
             calls.push(["avatar", args]); return profile;
         } }
     });
+
     const res = {
         status() { return this; },
         json() { return this; },
@@ -178,4 +179,45 @@ test("administrative controllers pass the authenticated actor through each user 
     for (const [, args] of calls) {
         assert.deepEqual(args.at(-1), args.at(-1).delete ? { ...admin, delete: true } : admin);
     }
+});
+
+test("the role endpoint rejects all changes to the caller's own role", async () => {
+    let lookedUp = false;
+    const { userController } = loadModuleWithMocks(path.resolve(__dirname, "../../src/controllers/userController.js"), {
+        "../services/userService": { getRole: async () => { lookedUp = true; return {}; } }
+    });
+    for (const roleId of ["admin", "user", "super"]) {
+        let received;
+        await userController.updateRole(
+            { authUser: { id: "actor" }, params: { id: "actor" }, body: { roleId } },
+            {}, (error) => { received = error; }
+        );
+        assert.equal(received?.statusCode, 409);
+    }
+    assert.equal(lookedUp, false);
+});
+
+test("role assignments invalidate authentication even on ambiguous failures", async () => {
+    let invalidations = 0;
+    let fail = false;
+    const profile = { id: "target", roleId: "user" };
+    const { userController } = loadModuleWithMocks(path.resolve(__dirname, "../../src/controllers/userController.js"), {
+        "../services/userService": {
+            getRole: async () => ({}), getProfile: async () => profile,
+            getProfileWithPermissions: async () => profile,
+            updateProfileGuarded: async () => {
+                if (fail) throw new Error("response lost");
+                return profile;
+            }
+        },
+        "./authController": { getPublicUser: (user) => user },
+        "../services/authSessionService": { clearAuthenticationCache: () => { invalidations++; } }
+    });
+    const req = { authUser: { id: "actor" }, params: { id: "target" }, body: { roleId: "user" } };
+    await userController.updateRole(req, { json() {} }, assert.fail);
+    fail = true;
+    let received;
+    await userController.updateRole(req, {}, (error) => { received = error; });
+    assert.match(received.message, /response lost/);
+    assert.equal(invalidations, 2);
 });

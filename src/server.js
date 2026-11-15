@@ -26,7 +26,8 @@ async function startServer() {
         await initializeAuthData();
         return app.listen(PORT, () => {
             telemetry.start();
-            if (isToolAuditEnabled() || isRoleAuditEnabled() || isUserAuditEnabled() ||
+            if (process.env.SECURE_ADMIN_ENABLED === "true" ||
+                isToolAuditEnabled() || isRoleAuditEnabled() || isUserAuditEnabled() ||
                 isSelfUserAuditEnabled() || isRecoveryAuditEnabled() || isRegistrationAuditEnabled() ||
                 isWorkshopStorageAuditEnabled() || isStorageBoxAuditEnabled() || isRepairAuditEnabled() ||
                 isCatalogAuditEnabled() || isTaskBoardCatalogAuditEnabled() || taskBoardTaskAuditEnabled ||

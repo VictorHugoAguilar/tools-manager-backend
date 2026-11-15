@@ -1,4 +1,6 @@
 const { getAdminDatabase } = require("../config/firebaseAdmin");
+const { LEGACY_PERMISSIONS: PERMISSIONS } = require("../permissions/permissionCatalog");
+const { calculateEffectivePermissions } = require("../permissions/effectivePermissions");
 const {
     isRoleAuditEnabled, transactRolePermissions, isUserAuditEnabled, isSelfUserAuditEnabled,
     isRegistrationAuditEnabled, transactAdminUser
@@ -29,14 +31,6 @@ const DEFAULT_ROLES = {
             "tracing:app": true
         }
     }
-};
-
-const PERMISSIONS = {
-    "app:access": "Acceder a las funciones de la aplicación",
-    "users:manage": "Consultar y administrar usuarios",
-    "roles:manage": "Consultar y administrar permisos por rol",
-    "monitoring:app": "Acceder a las funciones de monitoreo",
-    "tracing:app": "Acceder a las funciones de trazabilidad"
 };
 
 function getProfilesRef() {
@@ -128,16 +122,18 @@ async function getAccountByEmail(email) {
 }
 
 async function getProfileWithPermissions(uid) {
-    const profile = await getProfile(uid);
+    const snapshot = await getProfilesRef().child(uid).get();
+    const storedProfile = snapshot.val();
+    const profile = normalizeProfile(uid, storedProfile);
     if (!profile) return null;
     const roleSnapshot = await getRolesRef().child(profile.roleId).get();
     const role = roleSnapshot.val();
-    if (!role) return null;
+    if (!role || role.active === false) return null;
 
     return {
         ...profile,
         roleName: role.name,
-        permissions: Object.keys(role.permissions || {}).filter((permission) => role.permissions[permission])
+        permissions: calculateEffectivePermissions(role.permissions ?? {}, storedProfile.permissionExceptions ?? {})
     };
 }
 
@@ -483,7 +479,18 @@ async function updateRolePermissions(roleId, permissionIds, actorId) {
         throw Object.assign(new Error("La lista incluye permisos no válidos."), { statusCode: 400 });
     }
 
-    const permissions = Object.fromEntries(permissionIds.map((id) => [id, true]));
+    const selected = Object.fromEntries(permissionIds.map((id) => [id, true]));
+    const mergePermissions = (role) => {
+        const existing = role.permissions ?? {};
+        if (typeof existing !== "object" || Array.isArray(existing)) {
+            throw Object.assign(new Error("Los permisos del rol no son válidos."), { statusCode: 409 });
+        }
+        return {
+            ...Object.fromEntries(Object.entries(existing).filter(([id]) => !Object.hasOwn(PERMISSIONS, id))),
+            ...selected
+        };
+    };
+    const enabledPermissions = (permissions) => Object.keys(permissions).filter((key) => permissions[key]);
     const checkAdminPermissions = () => {
         if (roleId === "admin" && (
             !permissionIds.includes("app:access") ||
@@ -499,13 +506,13 @@ async function updateRolePermissions(roleId, permissionIds, actorId) {
             change: (role) => {
                 if (!role) return null;
                 checkAdminPermissions();
+                const permissions = mergePermissions(role);
                 return {
                     value: { ...role, permissions },
-                    result: { id: roleId, name: role.name, permissions: permissionIds },
+                    result: { id: roleId, name: role.name, permissions: enabledPermissions(permissions) },
                     auditDetails: {
-                        permissionsBefore: JSON.stringify(Object.keys(role.permissions || {})
-                            .filter((key) => role.permissions[key]).sort()),
-                        permissionsAfter: JSON.stringify(Object.keys(permissions).sort())
+                        permissionsBefore: JSON.stringify(enabledPermissions(role.permissions || {}).sort()),
+                        permissionsAfter: JSON.stringify(enabledPermissions(permissions).sort())
                     }
                 };
             }
@@ -513,11 +520,17 @@ async function updateRolePermissions(roleId, permissionIds, actorId) {
     }
     const roleRef = getRolesRef().child(roleId);
     const snapshot = await roleRef.get();
-    const role = snapshot.val();
-    if (!role) return null;
+    if (!snapshot.exists()) return null;
     checkAdminPermissions();
-    await roleRef.update({ permissions });
-    return { id: roleId, name: role.name, permissions: permissionIds };
+    const result = await roleRef.transaction((role) => {
+        if (!role) return null;
+        return { ...role, permissions: mergePermissions(role) };
+    }, undefined, false);
+    if (!result.committed) {
+        throw Object.assign(new Error("No se pudo confirmar el cambio de permisos."), { statusCode: 503 });
+    }
+    const role = result.snapshot.val();
+    return role ? { id: roleId, name: role.name, permissions: enabledPermissions(role.permissions || {}) } : null;
 }
 
 module.exports = {

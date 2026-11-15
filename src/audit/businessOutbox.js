@@ -331,10 +331,17 @@ function transactRolePermissions({ id, actorId, change, database = getAdminDatab
     });
 }
 
+function transactPermissionRole({ id, actorId, action, change, database = getAdminDatabase() }) {
+    if (!["role.profile.created", "role.profile.updated", "role.profile.deactivated"].includes(action)) {
+        throw new Error("Acción de auditoría de perfil no válida.");
+    }
+    return transactEntity({ id, actorId, action, change, database, collection: "authRoles", allowEmptyRoot: false });
+}
+
 function transactAdminUser({ id, actorId, action, change, database = getAdminDatabase() }) {
     const actions = ["user.created", "user.updated", "user.deleted", "user.role.updated",
         "user.status.updated", "user.password.reset", "user.avatar.updated",
-        "user.profile.updated", "user.password.changed", "user.password.recovered",
+        "user.profile.updated", "user.password.changed", "user.password.recovered", "user.permissions.updated",
         "user.registered", "user.registration.rolled_back"];
     if (!actions.includes(action)) throw new Error("Acción de auditoría de usuario no válida.");
     return transactEntity({ id, actorId, action, change, database, collection: "authUsers", allowEmptyRoot: false });
@@ -346,7 +353,7 @@ module.exports = {
     isCatalogAuditEnabled, isTaskBoardCatalogAuditEnabled, isTaskBoardTaskAuditEnabled,
     isTodoProjectAuditEnabled, isTodoSectionAuditEnabled, isTodoItemAuditEnabled, isTodoLabelAuditEnabled,
     isDrawingDocumentAuditEnabled, isDrawingPageAuditEnabled,
-    transactTool, transactRolePermissions, transactAdminUser, transactWorkshopStorage, transactStorageBox,
+    transactTool, transactRolePermissions, transactPermissionRole, transactAdminUser, transactWorkshopStorage, transactStorageBox,
     transactStorageSettings, transactRepair, transactCatalog, transactTaskBoardCatalog, transactTaskBoardTask,
     transactTodoProject, transactTodoSection, transactTodoItem, transactTodoLabel,
     transactDrawingDocument, transactDrawingPage, MAX_ROOT_BYTES

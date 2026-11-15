@@ -1,4 +1,5 @@
 const { resolveSession } = require("../services/authSessionService");
+const { MODULES } = require("../permissions/moduleCatalog");
 
 const SESSION_COOKIE = "tm_session";
 const CSRF_COOKIE = "tm_csrf";
@@ -46,6 +47,16 @@ function requirePermission(permission) {
     };
 }
 
+function requireModulePermission(moduleId) {
+    const module = MODULES.find((item) => item.id === moduleId && item.active);
+    if (!module) throw new TypeError("El módulo protegido no es válido.");
+    const checkPermission = requirePermission(module.permission);
+    return (req, res, next) => {
+        if (!req.authUser) return unauthorized(res);
+        return checkPermission(req, res, next);
+    };
+}
+
 function requireCsrf(req, res, next) {
     const cookies = parseCookies(req.headers.cookie);
     const csrfCookie = cookies[CSRF_COOKIE];
@@ -62,5 +73,6 @@ module.exports = {
     parseCookies,
     requireAuthenticated,
     requireCsrf,
+    requireModulePermission,
     requirePermission
 };

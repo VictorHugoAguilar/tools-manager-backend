@@ -9,6 +9,8 @@
     "scripts": {
         "migrate:firebase": "node scripts/migrate-tools-to-firebase.js",
         "bootstrap:admin": "node scripts/bootstrap-admin.js",
+        "permissions:preview": "node scripts/inspect-module-permissions.js",
+        "permissions:apply": "node scripts/apply-module-permissions.js",
         "test": "node --test",
         "start": "node src/server.js",
         "dev": "node --watch src/server.js",

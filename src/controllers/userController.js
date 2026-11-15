@@ -17,27 +17,14 @@ const {
 } = require("../services/userService");
 const { deleteImageByUrl } = require("../services/toolImageStorageService");
 const { updateUserAvatar } = require("../services/userAvatarService");
+const { clearAuthenticationCache } = require("../services/authSessionService");
+const { validateName, validateEmail } = require("../services/userInputValidation");
 function httpError(message, statusCode) {
     return Object.assign(new Error(message), { statusCode });
 }
 
 function handle(handler) {
     return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
-}
-
-function validateName(value, label) {
-    if (typeof value !== "string" || !value.trim() || value.trim().length > 80) {
-        throw httpError(`${label} es obligatorio y no puede superar 80 caracteres.`, 400);
-    }
-    return value.trim();
-}
-
-function validateEmail(value) {
-    const email = typeof value === "string" ? value.trim().toLowerCase() : "";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
-        throw httpError("Introduce un correo electrónico válido.", 400);
-    }
-    return email;
 }
 
 function validateRoleId(value) {
@@ -173,15 +160,20 @@ const userController = {
 
     updateRole: handle(async (req, res) => {
         const roleId = validateRoleId(req.body?.roleId);
+        if (req.params.id === req.authUser.id) {
+            throw httpError("No puedes modificar tu propio rol.", 409);
+        }
         if (!await getRole(roleId)) {
             throw httpError("El rol indicado no existe.", 400);
         }
-        if (req.params.id === req.authUser.id && roleId !== "admin") {
-            throw httpError("No puedes retirar tu propio rol de administrador.", 409);
-        }
         const existing = await getProfile(req.params.id);
         if (!existing) return res.status(404).json({ message: "Usuario no encontrado." });
-        const updated = await updateProfileGuarded(req.params.id, { roleId }, { admin: true, actorId: req.authUser.id });
+        let updated;
+        try {
+            updated = await updateProfileGuarded(req.params.id, { roleId }, { admin: true, actorId: req.authUser.id });
+        } finally {
+            clearAuthenticationCache();
+        }
         if (!updated) return res.status(404).json({ message: "Usuario no encontrado." });
         return res.json({ user: getPublicUser(await getProfileWithPermissions(req.params.id)) });
     }),
@@ -217,7 +209,15 @@ const userController = {
     roles: handle(async (_req, res) => res.json({ roles: await listRoles() })),
     permissions: handle(async (_req, res) => res.json({ permissions: await listPermissions() })),
     updatePermissions: handle(async (req, res) => {
-        const role = await updateRolePermissions(req.params.roleId, req.body?.permissions, req.authUser.id);
+        if (req.params.roleId === req.authUser.roleId) {
+            throw httpError("No puedes modificar los permisos de tu propio rol.", 409);
+        }
+        let role;
+        try {
+            role = await updateRolePermissions(req.params.roleId, req.body?.permissions, req.authUser.id);
+        } finally {
+            clearAuthenticationCache();
+        }
         return role ? res.json({ role }) : res.status(404).json({ message: "Rol no encontrado." });
     })
 };

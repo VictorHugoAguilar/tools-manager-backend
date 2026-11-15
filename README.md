@@ -827,14 +827,80 @@ Las cuentas de la aplicación usan credenciales propias, verificadas por la API;
 
 El servidor verifica sesiones opacas mediante una cookie `HttpOnly`, con expiración y revocación al cambiar contraseña o estado, y protege las solicitudes de escritura con un token CSRF de doble envío. Las rutas de inventario existentes requieren una sesión válida y el permiso `app:access`. Las rutas de administración requieren los permisos correspondientes.
 
+El catálogo de módulos y la administración por módulos de `src/permissions/`
+siguen siendo bases preparatorias: todavía no están integrados con la
+administración ni la protección de rutas de negocio. La autenticación calcula
+los permisos efectivos aplicando `allow` o `deny` sobre
+el permiso heredado del rol; la ausencia de excepción conserva el valor heredado.
+Un rol inexistente o inactivo no permite iniciar ni mantener una sesión.
+El catálogo está disponible para usuarios autenticados en `GET /api/auth/modules`.
+Existe un middleware de autorización por módulo, pero ninguna ruta lo utiliza aún.
+La operación preparatoria de excepciones escribe el cambio y su evento
+`user.permissions.updated` en la misma transacción; no tiene endpoint. Antes de exponerla, todos los
+publicadores de la outbox deben soportar ese tipo de evento y debe completarse
+la protección administrativa y de módulos.
+La asignación preparatoria de roles también revalida la sesión y los permisos
+del gestor dentro de la transacción, impide cambios propios y roles inactivos,
+protege los administradores y audita el cambio. Todavía no está conectada al
+endpoint existente. Este último rechaza cambios del rol propio, pero los demás
+flujos administrativos existentes aún requieren endurecimiento frente a
+escaladas y cambios concurrentes. El endpoint de permisos también rechaza
+modificar el rol de la sesión, pero esa comprobación usa el perfil autenticado,
+no una revalidación transaccional.
+Existe una alternativa interna para ese endpoint que revalida la sesión y la
+delegación en la transacción, conserva los permisos de módulos y audita el
+resultado. Todavía no está conectada a la ruta existente.
+Las operaciones internas preparatorias de alta y restablecimiento administrativo
+de contraseñas revalidan la sesión y guardan el cambio y su auditoría en la misma
+transacción; el restablecimiento propio debe hacerse desde el perfil. Los eventos
+no incluyen contraseñas, hashes, nombres ni correos. Estas operaciones tampoco
+están conectadas a los endpoints existentes.
+También se han preparado operaciones auditadas para editar datos, cambiar el
+estado o eliminar usuarios. Comprueban la delegación y protegen al último
+administrador dentro de la transacción; los cambios de estado revocan las
+sesiones mediante su versión. La eliminación devuelve la imagen observada en
+la transacción, pero su limpieza en Storage, incluidos fallos ambiguos, sigue
+pendiente de integración. Estas operaciones tampoco tienen endpoints.
+En estas operaciones preparatorias y en la gestión interna de perfiles,
+asignaciones y excepciones, un gestor solo puede administrar o conceder permisos
+que posee efectivamente, después de sus propias excepciones. También se comprueban
+los permisos efectivos anteriores y posteriores de los usuarios afectados,
+incluidos los inactivos. Esta política aún no se aplica a los endpoints existentes.
+Las operaciones internas preparatorias de perfiles permiten crear, duplicar,
+editar y desactivar roles sin usuarios asignados, con auditoría transaccional
+`role.profile.created`, `role.profile.updated` y `role.profile.deactivated`.
+Revalidan la sesión y los permisos del administrador dentro de la transacción,
+impiden modificar el propio rol y desactivar los roles predeterminados `admin` y
+`user`, e invalidan la caché local. No tienen endpoints. Antes de exponerlas, todos los procesos
+publicadores deben aceptar estos eventos, el worker debe estar activo y deben
+asegurarse los flujos administrativos existentes. El endpoint actual de permisos
+por rol conserva las entradas de módulos que no administra. Las operaciones usan la
+transacción de raíz de la outbox y su límite de 8 MiB.
+La planificación de migración de roles es solo una función sin efectos sobre la
+base: conserva permisos explícitos, omite perfiles ya configurados explícitamente
+y no concede monitorización ni administración.
+`npm run permissions:preview` lee roles y usuarios y muestra únicamente totales,
+roles y permisos que se añadirían; no escribe ni muestra datos personales. Las dos
+lecturas no son una instantánea atómica. El recuento de administradores tiene en
+cuenta roles inactivos y excepciones individuales. Tras revisar el resultado y
+verificar que todos los publicadores de la outbox admiten `role.profile.updated`
+y que el worker está activo, `npm run permissions:apply -- --apply` aplica la
+migración por rol mediante transacciones auditadas. Antes de cada cambio valida
+de nuevo usuarios, roles y la existencia de un administrador efectivo. Si se
+interrumpe, se puede ejecutar otra vez: conserva valores explícitos y no duplica
+los eventos de roles ya migrados. La transacción sigue limitada a 8 MiB en la
+raíz de RTDB; el comando no habilita la protección de rutas por módulo.
+
 La autenticación usa una caché en memoria independiente por proceso, limitada a
 500 sesiones y 30 segundos desde el inicio de su validación, sin superar la
 caducidad de la sesión. La clave es el hash del token; no se guardan tokens en
 claro ni resultados inválidos. Las validaciones simultáneas de la misma sesión
 comparten la lectura cuando hay capacidad. El cierre de sesión invalida la caché
-local; las demás instancias no reciben esa invalidación. Una revocación, un
+local; las demás instancias no reciben esa invalidación. Una revocación o un
 cambio de contraseña, estado, rol o permisos puede tardar hasta 30 segundos en
-reflejarse, incluso en rutas de administración y monitorización; las peticiones
+reflejarse, incluso en rutas de administración y monitorización. Los cambios
+de rol y de permisos por rol invalidan la caché del proceso que los tramita,
+pero no la de otras instancias. Las peticiones
 ya en curso pueden terminar después. Un fallo de base de datos en una nueva
 validación se comunica como error, sin reutilizar una entrada caducada.
 `CACHE_ENABLED=false` también desactiva esta caché y las lecturas compartidas.

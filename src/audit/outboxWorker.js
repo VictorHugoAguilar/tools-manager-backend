@@ -9,6 +9,7 @@ const EVENT_FIELDS = ["schemaVersion", "eventId", "action", "actorId", "targetId
 const ROLE_FIELDS = ["permissionsBefore", "permissionsAfter"];
 const USER_ROLE_FIELDS = ["roleBefore", "roleAfter"];
 const USER_STATUS_FIELDS = ["activeBefore", "activeAfter"];
+const PROFILE_ACTIONS = ["role.profile.created", "role.profile.updated", "role.profile.deactivated"];
 
 class InvalidOutboxEntryError extends Error {}
 
@@ -18,7 +19,8 @@ function eventFields(event) {
     if (typeof event?.action === "string" && event.action.startsWith("box.product.")) return [...scopedFields, "boxId"];
     if (typeof event?.action === "string" && event.action.startsWith("repair.")) return [...EVENT_FIELDS, "toolId"];
     if (typeof event?.action === "string" && event.action.startsWith("todo.member.")) return [...EVENT_FIELDS, "projectId"];
-    if (event?.action === "role.permissions.updated") return [...EVENT_FIELDS, ...ROLE_FIELDS];
+    if (event?.action === "role.permissions.updated" || event?.action === "user.permissions.updated") return [...EVENT_FIELDS, ...ROLE_FIELDS];
+    if (PROFILE_ACTIONS.includes(event?.action)) return [...EVENT_FIELDS, ...ROLE_FIELDS, ...USER_STATUS_FIELDS];
     if (event?.action === "user.role.updated") return [...EVENT_FIELDS, ...USER_ROLE_FIELDS];
     if (event?.action === "user.status.updated") return [...EVENT_FIELDS, ...USER_STATUS_FIELDS];
     return scopedFields;
@@ -37,11 +39,11 @@ function validEvent(id, event) {
         (!fields.includes("boxId") || typeof event.boxId === "string") &&
         (!fields.includes("toolId") || typeof event.toolId === "string") &&
         (!fields.includes("projectId") || typeof event.projectId === "string") &&
-        (event.action !== "role.permissions.updated" ||
+        (!["role.permissions.updated", "user.permissions.updated", ...PROFILE_ACTIONS].includes(event.action) ||
             ROLE_FIELDS.every((key) => typeof event[key] === "string")) &&
         (event.action !== "user.role.updated" ||
             USER_ROLE_FIELDS.every((key) => typeof event[key] === "string")) &&
-        (event.action !== "user.status.updated" ||
+        (!(event.action === "user.status.updated" || PROFILE_ACTIONS.includes(event.action)) ||
             USER_STATUS_FIELDS.every((key) => typeof event[key] === "boolean"));
 }
 

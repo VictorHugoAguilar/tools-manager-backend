@@ -98,6 +98,11 @@ async function deleteSession(tokenHash) {
     }
 }
 
+function clearAuthenticationCache() {
+    sessionCache.clear();
+    sessionLoads.clear();
+}
+
 async function storePasswordReset(token, uid, expiresAt, sessionVersion) {
     await getPasswordResetsRef().child(hashToken(token)).set({ uid, expiresAt, sessionVersion });
 }
@@ -141,6 +146,7 @@ async function completeAuditedPasswordReset(token, passwordHash) {
 
 module.exports = {
     SESSION_TTL_MS,
+    clearAuthenticationCache,
     createSession,
     deleteSession,
     consumePasswordReset,

@@ -4,6 +4,7 @@ const {
     parseCookies,
     requireAuthenticated,
     requireCsrf,
+    requireModulePermission,
     requirePermission
 } = require("../../src/middleware/authMiddleware");
 
@@ -64,4 +65,21 @@ test("permission middleware denies users without the requested permission", () =
 
     requirePermission("users:manage")({ authUser: { permissions: ["app:access"] } }, res, assert.fail);
     assert.equal(status, 403);
+});
+
+test("module authorization distinguishes unauthenticated, denied and authorized requests", () => {
+    const check = requireModulePermission("inventory");
+    let status;
+    let passed = false;
+    const res = {
+        status(code) { status = code; return this; },
+        json() { return this; }
+    };
+    check({}, res, () => { passed = true; });
+    assert.equal(status, 401);
+    check({ authUser: { permissions: ["app:access"] } }, res, () => { passed = true; });
+    assert.equal(status, 403);
+    check({ authUser: { permissions: ["module:inventory"] } }, res, () => { passed = true; });
+    assert.equal(passed, true);
+    assert.throws(() => requireModulePermission("unknown"), /módulo/);
 });

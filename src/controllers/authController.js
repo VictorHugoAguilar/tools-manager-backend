@@ -23,6 +23,7 @@ const { isRecoveryAuditEnabled } = require("../audit/businessOutbox");
 const { hashPassword, verifyPassword } = require("../services/passwordService");
 const { sendPasswordResetEmail } = require("../services/emailService");
 const { updateUserAvatar } = require("../services/userAvatarService");
+const { validateEmail, validateNewPassword } = require("../services/userInputValidation");
 
 const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
 const failedAttempts = new Map();
@@ -37,28 +38,12 @@ function createHttpError(message, statusCode) {
     return Object.assign(new Error(message), { statusCode });
 }
 
-function validateEmail(value) {
-    const email = typeof value === "string" ? value.trim().toLowerCase() : "";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
-        throw createHttpError("Introduce un correo electrónico válido.", 400);
-    }
-    return email;
-}
-
 function validateCredentials(email, password) {
     const normalizedEmail = validateEmail(email);
     if (typeof password !== "string" || !password || password.length > 128) {
         throw createHttpError("Introduce una contraseña válida.", 400);
     }
     return normalizedEmail;
-}
-
-function validateNewPassword(password) {
-    if (typeof password !== "string" || password.length < 10 || password.length > 128 ||
-        !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
-        throw createHttpError("La contraseña debe tener entre 10 y 128 caracteres e incluir letras y números.", 400);
-    }
-    return password;
 }
 
 function validateProfileInput(body) {
