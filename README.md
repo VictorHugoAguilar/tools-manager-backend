@@ -256,8 +256,11 @@ referencia de imagen y eliminación escriben el cambio en `tools` y un evento
 en `auditOutbox` mediante una transacción en la raíz de Realtime Database. Los
 eventos incluyen identificadores, acción y fecha, pero no nombres, imágenes ni
 contenido de la herramienta. El proceso backend publica la outbox en Firestore
-`auditEvents` cada cinco segundos y elimina cada entrada solo después de
-confirmar la escritura; reintentos tras un fallo son idempotentes. Si una entrada
+`auditEvents` y elimina cada entrada solo después de confirmar la escritura;
+reintentos tras un fallo son idempotentes. Tras encontrar la cola vacía espera
+30 segundos antes de volver a comprobarla; mientras procesa entradas o reintenta
+errores espera cinco segundos entre comprobaciones. Los tiempos se cuentan desde
+que termina cada comprobación. Si una entrada
 está dañada o entra en conflicto, se conserva y se registra el error. El
 publicador sigue con las demás entradas del lote y recorre la cola por páginas
 acotadas, volviendo al principio para reintentar las bloqueadas. Un fallo de
@@ -559,10 +562,11 @@ de interacción en la ventana configurada por
 El navegador envía señales para pulsaciones, teclas y rueda de desplazamiento
 de eventos fiables en una pestaña visible con sesión conocida, no por simples
 peticiones automáticas ni conexiones WebSocket. La señal se limita a una cada
-15 segundos por pestaña, con un último envío si hubo interacción durante ese
-intervalo. Una sesión cerrada o revocada puede seguir contándose hasta que
-expire su última señal. Es una estimación de actividad registrada, no una prueba
-de presencia humana: clientes antiguos, fallos de red, sesiones inválidas,
+60 segundos por pestaña, con un último envío si hubo interacción durante ese
+intervalo. Esto reduce las escrituras, pero puede retrasar hasta un minuto el
+registro de una interacción. Una sesión cerrada o revocada puede seguir
+contándose hasta que expire su última señal. Es una estimación de actividad
+registrada, no una prueba de presencia humana: clientes antiguos, fallos de red, sesiones inválidas,
 límites de peticiones o falta de permiso `app:access` pueden omitir actividad.
 
 La señal exige telemetría habilitada en frontend y backend, sesión y CSRF, y
@@ -643,11 +647,12 @@ al navegador; el servidor conserva el error original en sus registros.
 
 Con telemetría habilitada en cada proceso, el backend y el servidor WebSocket
 publican un heartbeat en `monitoringInstances` al comenzar a escuchar y después
-cada 30 segundos, con timestamp asignado por Firestore. El panel considera
+cada 60 segundos, con timestamp asignado por Firestore. El panel considera
 recientes las señales de los últimos 120 segundos; una señal reciente solo
 indica que una instancia pudo escribir en Firestore, no que el servicio esté
 disponible para usuarios. Una señal antigua o ausente tampoco demuestra por sí
-sola que el servicio esté caído. Se muestra la última señal de las instancias
+sola que el servicio esté caído; un envío fallido deja menos margen antes de que
+la señal se considere antigua. Se muestra la última señal de las instancias
 consultadas en las últimas 48 horas, separadas por entorno; la consulta falla
 explícitamente si supera 500 documentos en lugar de devolver un conteo parcial.
 La salud del heartbeat en el recolector corresponde solo a la instancia que
@@ -813,13 +818,27 @@ rango se sustituyen por el valor por defecto):
 
 Las claves llevan prefijo por dominio (`tools:`, `workshop:`, `catalog:`); los
 filtros se normalizan y se resumen con un hash, de modo que el texto de búsqueda
-no aparece en la clave. No existen claves para autenticación, permisos ni auditoría.
+no aparece en la clave. Esta caché compartida no contiene autenticación, permisos
+ni auditoría.
 
 ### Autenticación y usuarios
 
 Las cuentas de la aplicación usan credenciales propias, verificadas por la API; no se usa Firebase Authentication ni inicio de sesión de Google para identificar a los usuarios. Los perfiles y hashes de contraseña (scrypt con salt aleatorio) están en `authUsers`; los roles y permisos en `authRoles` y `authPermissions`; las sesiones y los tokens de recuperación se guardan como hashes en `authSessions` y `authPasswordResets`. No se añade una base SQL ni se modifica el almacenamiento de herramientas/taller. La carga existente de imágenes puede usar una identidad anónima de Firebase Storage según la configuración del bucket.
 
 El servidor verifica sesiones opacas mediante una cookie `HttpOnly`, con expiración y revocación al cambiar contraseña o estado, y protege las solicitudes de escritura con un token CSRF de doble envío. Las rutas de inventario existentes requieren una sesión válida y el permiso `app:access`. Las rutas de administración requieren los permisos correspondientes.
+
+La autenticación usa una caché en memoria independiente por proceso, limitada a
+500 sesiones y 30 segundos desde el inicio de su validación, sin superar la
+caducidad de la sesión. La clave es el hash del token; no se guardan tokens en
+claro ni resultados inválidos. Las validaciones simultáneas de la misma sesión
+comparten la lectura cuando hay capacidad. El cierre de sesión invalida la caché
+local; las demás instancias no reciben esa invalidación. Una revocación, un
+cambio de contraseña, estado, rol o permisos puede tardar hasta 30 segundos en
+reflejarse, incluso en rutas de administración y monitorización; las peticiones
+ya en curso pueden terminar después. Un fallo de base de datos en una nueva
+validación se comunica como error, sin reutilizar una entrada caducada.
+`CACHE_ENABLED=false` también desactiva esta caché y las lecturas compartidas.
+Sus estadísticas son independientes de las de la caché compartida.
 
 | Método | Ruta | Acceso | Función |
 |---|---|---|---|

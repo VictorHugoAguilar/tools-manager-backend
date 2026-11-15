@@ -1,7 +1,7 @@
 const { FieldValue, Timestamp } = require("firebase-admin/firestore");
 const { ResourceSampler, MAX_SAMPLE_AGE_MS } = require("./resourceSampler");
 
-const HEARTBEAT_INTERVAL_MS = 30000;
+const HEARTBEAT_INTERVAL_MS = 60000;
 const FRESHNESS_MS = 120000;
 const RETENTION_MS = 2 * 86400000;
 const MAX_INSTANCES = 500;

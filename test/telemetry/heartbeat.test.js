@@ -38,6 +38,28 @@ test("heartbeat writes once per instance using server timestamp and expiry", asy
     assert.ok(heartbeat.lastSuccess);
 });
 
+test("heartbeat writes at startup and then once per minute", async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    let writes = 0;
+    const heartbeat = new Heartbeat({
+        instanceId: "instance", service: "backend", environment: "test",
+        resourceSampler: { start() {}, stop() {}, snapshot: () => null },
+        getDatabase: () => ({ collection: () => ({ doc: () => ({
+            set: async () => { writes++; }
+        }) }) })
+    });
+    t.after(() => heartbeat.stop());
+    heartbeat.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(writes, 1);
+    t.mock.timers.tick(59999);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(writes, 1);
+    t.mock.timers.tick(1);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(writes, 2);
+});
+
 test("heartbeat publishes resource snapshot without waiting for disk sampling", async () => {
     let written;
     const resources = { process: { sampledAt: 1000, cpuPercent: null, rssBytes: 12 }, disk: null };

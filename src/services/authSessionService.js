@@ -2,8 +2,14 @@ const { createHash, randomBytes } = require("node:crypto");
 const { getAdminDatabase } = require("../config/firebaseAdmin");
 const { getProfileWithPermissions } = require("./userService");
 const { transactAdminUser } = require("../audit/businessOutbox");
+const { CacheService } = require("../cache/cacheService");
+const { cacheConfig } = require("../cache/sharedCache");
 
 const SESSION_TTL_MS = 5 * 24 * 60 * 60 * 1000;
+const AUTH_CACHE_TTL_MS = 30000;
+const AUTH_CACHE_MAX_ENTRIES = 500;
+const sessionCache = new CacheService({ enabled: cacheConfig.enabled, maxEntries: AUTH_CACHE_MAX_ENTRIES });
+const sessionLoads = new Map();
 
 function hashToken(token) {
     return createHash("sha256").update(token).digest("hex");
@@ -36,8 +42,7 @@ async function createSession(uid) {
     return { token, tokenHash, expiresAt };
 }
 
-async function resolveSession(token) {
-    const tokenHash = hashToken(token);
+async function loadSession(tokenHash) {
     const ref = getSessionsRef().child(tokenHash);
     const snapshot = await ref.get();
     const session = snapshot.val();
@@ -52,11 +57,45 @@ async function resolveSession(token) {
         await ref.remove();
         return null;
     }
-    return { profile, tokenHash };
+    if (session.expiresAt <= Date.now()) return null;
+    return { profile, tokenHash, expiresAt: session.expiresAt };
+}
+
+async function resolveSession(token) {
+    const tokenHash = hashToken(token);
+    let result = sessionCache.get(tokenHash);
+    if (!result) {
+        let load = sessionLoads.get(tokenHash);
+        if (!load) {
+            const startedAt = Date.now();
+            const tracked = sessionCache.enabled && sessionLoads.size < AUTH_CACHE_MAX_ENTRIES;
+            load = {};
+            if (tracked) sessionLoads.set(tokenHash, load);
+            load.promise = loadSession(tokenHash).then((session) => {
+                if (session && tracked && sessionLoads.get(tokenHash) === load) {
+                    const ttl = Math.min(startedAt + AUTH_CACHE_TTL_MS, session.expiresAt) - Date.now();
+                    if (ttl > 0) sessionCache.set(tokenHash, session, ttl);
+                }
+                return session;
+            }).finally(() => {
+                if (sessionLoads.get(tokenHash) === load) sessionLoads.delete(tokenHash);
+            });
+        }
+        result = await load.promise;
+    }
+    if (!result || result.expiresAt <= Date.now()) return null;
+    return { profile: structuredClone(result.profile), tokenHash: result.tokenHash };
 }
 
 async function deleteSession(tokenHash) {
-    await getSessionsRef().child(tokenHash).remove();
+    sessionCache.invalidate(tokenHash);
+    sessionLoads.delete(tokenHash);
+    try {
+        await getSessionsRef().child(tokenHash).remove();
+    } finally {
+        sessionCache.invalidate(tokenHash);
+        sessionLoads.delete(tokenHash);
+    }
 }
 
 async function storePasswordReset(token, uid, expiresAt, sessionVersion) {

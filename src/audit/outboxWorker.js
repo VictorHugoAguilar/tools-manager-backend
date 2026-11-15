@@ -3,7 +3,8 @@ const { getAdminApp, getAdminDatabase } = require("../config/firebaseAdmin");
 
 const BATCH_SIZE = 50;
 const STATUS_LIMIT = 100;
-const INTERVAL_MS = 5000;
+const ACTIVE_INTERVAL_MS = 5000;
+const IDLE_INTERVAL_MS = 30000;
 const EVENT_FIELDS = ["schemaVersion", "eventId", "action", "actorId", "targetId", "occurredAt"];
 const ROLE_FIELDS = ["permissionsBefore", "permissionsAfter"];
 const USER_ROLE_FIELDS = ["roleBefore", "roleAfter"];
@@ -50,6 +51,8 @@ class AuditOutboxWorker {
         this.getFirestoreDatabase = getFirestoreDatabase;
         this.inFlight = null;
         this.timer = null;
+        this.running = false;
+        this.generation = 0;
         this.consecutiveFailures = 0;
         this.lastAttemptAt = null;
         this.lastSuccessfulCheckAt = null;
@@ -58,25 +61,40 @@ class AuditOutboxWorker {
     }
 
     start() {
-        if (this.timer) return;
-        void this.flush().catch((error) => console.error("No se pudo publicar la auditoría pendiente.", error));
-        this.timer = setInterval(() => {
-            void this.flush().catch((error) => console.error("No se pudo publicar la auditoría pendiente.", error));
-        }, INTERVAL_MS);
-        this.timer.unref();
+        if (this.running) return;
+        this.running = true;
+        const generation = ++this.generation;
+        const check = async () => {
+            let delay = ACTIVE_INTERVAL_MS;
+            try {
+                if (!await this.flush()) delay = IDLE_INTERVAL_MS;
+            } catch (error) {
+                console.error("No se pudo publicar la auditoría pendiente.", error);
+            }
+            if (!this.running || this.generation !== generation) return;
+            this.timer = setTimeout(() => {
+                this.timer = null;
+                void check();
+            }, delay);
+            this.timer.unref();
+        };
+        void check();
     }
 
     stop() {
-        if (this.timer) clearInterval(this.timer);
+        this.running = false;
+        this.generation += 1;
+        if (this.timer) clearTimeout(this.timer);
         this.timer = null;
     }
 
     flush() {
         if (this.inFlight) return this.inFlight;
         this.lastAttemptAt = new Date().toISOString();
-        this.inFlight = this.publishBatch().then(() => {
+        this.inFlight = this.publishBatch().then((hasWork) => {
             this.consecutiveFailures = 0;
             this.lastSuccessfulCheckAt = new Date().toISOString();
+            return hasWork;
         }, (error) => {
             this.consecutiveFailures += 1;
             this.lastFailureAt = new Date().toISOString();
@@ -87,7 +105,7 @@ class AuditOutboxWorker {
 
     getHealth() {
         return {
-            running: this.timer !== null,
+            running: this.running,
             inFlight: this.inFlight !== null,
             consecutiveFailures: this.consecutiveFailures,
             lastAttemptAt: this.lastAttemptAt,
@@ -106,6 +124,7 @@ class AuditOutboxWorker {
     async publishBatch() {
         const outbox = this.getRealtimeDatabase().ref("auditOutbox");
         let query = outbox.orderByKey();
+        const continuingScan = this.scanAfter !== null;
         if (this.scanAfter !== null) query = query.startAfter(this.scanAfter);
         const snapshot = await query.limitToFirst(BATCH_SIZE).get();
         const events = [];
@@ -127,6 +146,7 @@ class AuditOutboxWorker {
             if (errors.length === 1) throw errors[0];
             throw new AggregateError(errors, `${errors.length} registros de auditoría pendientes requieren revisión.`);
         }
+        return events.length > 0 || continuingScan;
     }
 
     async publishEntry(outbox, id, event) {

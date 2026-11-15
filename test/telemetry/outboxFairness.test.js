@@ -6,6 +6,7 @@ function harness(initial) {
     const pending = new Map(Object.entries(structuredClone(initial)));
     const written = new Map();
     let firestoreDown = false;
+    let reads = 0;
     const outbox = {
         orderByKey() {
             let after = null;
@@ -14,6 +15,7 @@ function harness(initial) {
                 startAfter(value) { after = value; return this; },
                 limitToFirst(value) { limit = value; return this; },
                 async get() {
+                    reads++;
                     const entries = [...pending.entries()].sort(([a], [b]) => a.localeCompare(b))
                         .filter(([key]) => after === null || key > after).slice(0, limit);
                     return { forEach(callback) {
@@ -41,7 +43,7 @@ function harness(initial) {
             async get() { return { exists: written.has(id), data: () => written.get(id) }; }
         }) }) })
     });
-    return { worker, pending, written, fail(value) { firestoreDown = value; } };
+    return { worker, pending, written, reads: () => reads, fail(value) { firestoreDown = value; } };
 }
 
 function event(id) {
@@ -84,4 +86,79 @@ test("transport failure aborts the scan and retries pending records without losi
     await assert.rejects(h.worker.flush(), /no válido/);
     assert.equal(h.pending.size, 1);
     assert.equal(h.written.size, 2);
+});
+
+test("an empty continuation page keeps the fast scan before returning to the start", async () => {
+    const initial = {};
+    for (let i = 0; i < BATCH_SIZE; i++) {
+        const id = `key${String(i).padStart(3, "0")}`;
+        initial[id] = event(id);
+    }
+    initial.key000 = { invalid: true };
+    const h = harness(initial);
+    await assert.rejects(h.worker.flush(), /no válido/);
+    assert.equal(await h.worker.flush(), true);
+    await assert.rejects(h.worker.flush(), /no válido/);
+});
+
+test("publisher slows down when idle and resumes fast checks after work or failures", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    t.mock.method(console, "error", () => {});
+    const h = harness({});
+    const settle = () => new Promise((resolve) => setImmediate(resolve));
+    t.after(() => h.worker.stop());
+    h.worker.start();
+    await settle();
+    assert.equal(h.reads(), 1);
+    t.mock.timers.tick(29999);
+    await settle();
+    assert.equal(h.reads(), 1);
+    h.pending.set("key000", event("key000"));
+    h.fail(true);
+    t.mock.timers.tick(1);
+    await settle();
+    assert.equal(h.reads(), 2);
+    assert.equal(h.pending.size, 1);
+    h.fail(false);
+    t.mock.timers.tick(5000);
+    await settle();
+    assert.equal(h.reads(), 3);
+    assert.equal(h.pending.size, 0);
+    assert.equal(h.written.size, 1);
+    t.mock.timers.tick(5000);
+    await settle();
+    assert.equal(h.reads(), 4);
+    t.mock.timers.tick(29999);
+    await settle();
+    assert.equal(h.reads(), 4);
+    t.mock.timers.tick(1);
+    await settle();
+    assert.equal(h.reads(), 5);
+});
+
+test("stopping and restarting during a check does not create duplicate timers", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let finish;
+    let checks = 0;
+    const worker = new AuditOutboxWorker();
+    worker.publishBatch = () => {
+        checks++;
+        if (checks === 1) return new Promise((resolve) => { finish = resolve; });
+        return Promise.resolve(false);
+    };
+    t.after(() => worker.stop());
+    worker.start();
+    assert.equal(worker.getHealth().running, true);
+    worker.stop();
+    worker.start();
+    finish(false);
+    await new Promise((resolve) => setImmediate(resolve));
+    t.mock.timers.tick(30000);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(checks, 2);
+    worker.stop();
+    t.mock.timers.tick(30000);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(checks, 2);
+    assert.equal(worker.getHealth().running, false);
 });
