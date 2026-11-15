@@ -14,6 +14,7 @@ const { adminRouter } = require("./routes/adminRoutes");
 const { taskBoardRouter } = require("./routes/taskBoardRoutes");
 const { todoListRouter } = require("./routes/todoListRoutes");
 const { drawingRouter } = require("./routes/drawingRoutes");
+const { createExamRouter } = require("./exams/examRoutes");
 const { telemetryRouter } = require("./routes/telemetryRoutes");
 const { monitoringRouter } = require("./routes/monitoringRoutes");
 const { toolTracingRouter } = require("./routes/toolTracingRoutes");
@@ -81,6 +82,7 @@ function createApp() {
                 taskBoard: "GET /api/task-board, POST /api/task-board/{columns,tasks,labels}, PATCH /api/task-board/{columns,tasks,labels}/:id, DELETE /api/task-board/{columns,tasks,labels}/:id, PUT|DELETE /api/task-board/tasks/:id/comments/:commentId",
                 todoList: "GET /api/todo-list, CRUD /api/todo-list/{projects,items,labels}, plus sections, assignments, subtasks, comments, attachments, reminders and notifications",
                 drawing: "CRUD /api/drawing/documents, pages, versioned snapshots, assets and per-user preferences",
+                exams: "GET /api/exams/{sections,history}, POST /api/exams/exams and /api/exams/import",
                 auth: "POST /api/auth/{register,login,password-reset,password-reset/complete,logout}, GET /api/auth/me",
                 profile: "GET|PATCH /api/users/me, PATCH /api/users/me/password, POST /api/users/me/avatar",
                 adminUsers: "GET|POST /api/admin/users, GET|PATCH|DELETE /api/admin/users/:id, PATCH /api/admin/users/:id/password",
@@ -115,6 +117,7 @@ function createApp() {
     app.use("/api/task-board", protectApplicationApi, taskBoardRouter);
     app.use("/api/todo-list", protectApplicationApi, todoListRouter);
     app.use("/api/drawing", protectApplicationApi, drawingRouter);
+    app.use("/api/exams", protectApplicationApi, createExamRouter());
 
     app.use((err, _req, res, _next) => {
         if (!err.statusCode || err.statusCode >= 500) console.error(err);

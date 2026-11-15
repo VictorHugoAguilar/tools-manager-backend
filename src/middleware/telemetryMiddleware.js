@@ -5,7 +5,7 @@ const TRACE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const API_ROOTS = new Set([
     "auth", "users", "admin", "tools", "technicians", "locations", "tool-types",
     "tags", "storage-boxes", "shelf-config", "workshop-storage", "task-board",
-    "todo-list", "drawing"
+    "todo-list", "drawing", "exams"
 ]);
 const ACTION_ROOTS = new Set([
     "users", "admin", "technicians", "locations", "tool-types", "tags",

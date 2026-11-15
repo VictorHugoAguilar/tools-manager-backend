@@ -1,0 +1,2263 @@
+{
+  "schemaVersion": "1.0.0",
+  "metadata": {
+    "title": "Banco de práctica HAREC - Radioafición",
+    "language": "es-ES",
+    "createdAt": "2026-11-14",
+    "questionCount": 60,
+    "contentOrigin": "Preguntas originales redactadas independientemente a partir de conocimientos generales del temario de electricidad/radioelectricidad y de materias del servicio de aficionados. No son una copia ni una transcripción de las preguntas del libro enlazado.",
+    "sourceBookNote": "El libro consultado declara expresamente que no se autoriza la reproducción, difusión ni almacenamiento de su contenido. Este fichero no incorpora sus preguntas ni sus respuestas literales.",
+    "regulatoryCaution": "Las preguntas normativas se han limitado a conceptos y preceptos de la Orden IET/1311/2013 consultada en el BOE. La página del BOE identifica el texto consolidado con última actualización publicada el 10/04/2015. Antes de usar este banco como material oficial de examen, conviene contrastar cualquier cambio normativo posterior, el CNAF vigente y las instrucciones de la Administración.",
+    "defaultExamSettings": {
+      "questionCount": 10,
+      "optionsPerQuestion": 4,
+      "shuffleQuestions": true,
+      "shuffleOptions": true,
+      "allowOneAnswer": true,
+      "showExplanationWhenIncorrect": true,
+      "showExplanationWhenCorrect": false,
+      "defaultSelection": "random",
+      "sections": [
+        "electricidad_radioelectricidad",
+        "reglamentacion_manejo"
+      ],
+      "mixingPolicy": "balanced_by_section",
+      "sectionDistribution": {
+        "electricidad_radioelectricidad": 5,
+        "reglamentacion_manejo": 5
+      }
+    },
+    "gradingSuggestion": {
+      "correctAnswerPoints": 1,
+      "incorrectAnswerPoints": 0,
+      "unansweredPoints": 0,
+      "negativeMarking": false
+    },
+    "references": [
+      {
+        "id": "boe_iet1311_2013",
+        "title": "Orden IET/1311/2013, de 9 de julio, Reglamento de uso del dominio público radioeléctrico por radioaficionados (texto consolidado)",
+        "url": "https://www.boe.es/buscar/act.php?id=BOE-A-2013-7624",
+        "scope": "Autorizaciones, estructura de la prueba, estaciones, distintivos de llamada e identificación de emisiones."
+      },
+      {
+        "id": "fundamentos_tecnicos_generales",
+        "title": "Fundamentos generales de electricidad, electrónica y radiofrecuencia",
+        "url": null,
+        "scope": "Conceptos y relaciones técnicas fundamentales; no constituyen una reproducción del libro enlazado."
+      }
+    ]
+  },
+  "sections": [
+    {
+      "id": "electricidad_radioelectricidad",
+      "name": "Prueba 1 - Electricidad y radioelectricidad",
+      "questionCount": 30
+    },
+    {
+      "id": "reglamentacion_manejo",
+      "name": "Prueba 2 - Reglamentación y manejo de equipos",
+      "questionCount": 30
+    }
+  ],
+  "questions": [
+    {
+      "id": "ELE-001",
+      "section": "electricidad_radioelectricidad",
+      "category": "electricidad_basica",
+      "topic": "Ley de Ohm",
+      "difficulty": "basico",
+      "question": "Una resistencia de 6 Ω está conectada a una fuente ideal de 12 V. ¿Qué corriente circula por ella?",
+      "explanation": "La ley de Ohm establece I = V / R. Al dividir 12 V entre 6 Ω se obtiene una corriente de 2 A.",
+      "tags": [
+        "ohm",
+        "tension",
+        "resistencia",
+        "corriente"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "0,5 A"
+        },
+        {
+          "id": "b",
+          "text": "2 A"
+        },
+        {
+          "id": "c",
+          "text": "6 A"
+        },
+        {
+          "id": "d",
+          "text": "72 A"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-002",
+      "section": "electricidad_radioelectricidad",
+      "category": "electricidad_basica",
+      "topic": "Potencia eléctrica",
+      "difficulty": "basico",
+      "question": "Un equipo consume 3 A cuando se alimenta a 24 V de corriente continua. ¿Cuál es su potencia eléctrica?",
+      "explanation": "En corriente continua, la potencia se calcula como P = V × I. Por tanto, 24 × 3 = 72 W.",
+      "tags": [
+        "potencia",
+        "vatios",
+        "corriente continua"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "8 W"
+        },
+        {
+          "id": "b",
+          "text": "27 W"
+        },
+        {
+          "id": "c",
+          "text": "72 W"
+        },
+        {
+          "id": "d",
+          "text": "96 W"
+        }
+      ],
+      "correctOptionId": "c",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-003",
+      "section": "electricidad_radioelectricidad",
+      "category": "circuitos",
+      "topic": "Resistencias en serie",
+      "difficulty": "basico",
+      "question": "Se conectan en serie tres resistencias de 100 Ω, 220 Ω y 330 Ω. ¿Qué resistencia equivalente presenta el conjunto?",
+      "explanation": "En una conexión en serie las resistencias se suman: 100 + 220 + 330 = 650 Ω.",
+      "tags": [
+        "resistencias",
+        "serie",
+        "resistencia equivalente"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "150 Ω"
+        },
+        {
+          "id": "b",
+          "text": "550 Ω"
+        },
+        {
+          "id": "c",
+          "text": "650 Ω"
+        },
+        {
+          "id": "d",
+          "text": "72.600 Ω"
+        }
+      ],
+      "correctOptionId": "c",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-004",
+      "section": "electricidad_radioelectricidad",
+      "category": "circuitos",
+      "topic": "Resistencias en paralelo",
+      "difficulty": "basico",
+      "question": "Dos resistencias iguales de 100 Ω se conectan en paralelo. ¿Cuál es la resistencia equivalente?",
+      "explanation": "Para dos resistencias iguales en paralelo, la equivalente es la mitad de cualquiera de ellas: 100 / 2 = 50 Ω.",
+      "tags": [
+        "resistencias",
+        "paralelo",
+        "resistencia equivalente"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "25 Ω"
+        },
+        {
+          "id": "b",
+          "text": "50 Ω"
+        },
+        {
+          "id": "c",
+          "text": "100 Ω"
+        },
+        {
+          "id": "d",
+          "text": "200 Ω"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-005",
+      "section": "electricidad_radioelectricidad",
+      "category": "circuitos",
+      "topic": "Circuito en serie",
+      "difficulty": "basico",
+      "question": "En un circuito ideal con varios componentes conectados en serie, ¿qué magnitud eléctrica es igual a través de todos ellos?",
+      "explanation": "En una única trayectoria en serie no hay bifurcaciones, por lo que la misma corriente atraviesa todos los elementos.",
+      "tags": [
+        "circuitos",
+        "serie",
+        "corriente"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "La corriente"
+        },
+        {
+          "id": "b",
+          "text": "La tensión"
+        },
+        {
+          "id": "c",
+          "text": "La potencia"
+        },
+        {
+          "id": "d",
+          "text": "La resistencia"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-006",
+      "section": "electricidad_radioelectricidad",
+      "category": "componentes",
+      "topic": "Condensadores",
+      "difficulty": "intermedio",
+      "question": "¿En qué campo almacena principalmente energía un condensador cargado?",
+      "explanation": "El condensador almacena energía mediante la separación de cargas y el campo eléctrico que se establece en su dieléctrico.",
+      "tags": [
+        "condensador",
+        "campo electrico",
+        "componentes"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "En el campo magnético"
+        },
+        {
+          "id": "b",
+          "text": "En el campo eléctrico entre sus placas"
+        },
+        {
+          "id": "c",
+          "text": "En forma de radiación infrarroja"
+        },
+        {
+          "id": "d",
+          "text": "En el campo gravitatorio"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-007",
+      "section": "electricidad_radioelectricidad",
+      "category": "componentes",
+      "topic": "Reactancia capacitiva",
+      "difficulty": "intermedio",
+      "question": "Si se mantiene constante la capacidad de un condensador y aumenta la frecuencia de la señal aplicada, ¿qué sucede con su reactancia capacitiva?",
+      "explanation": "La reactancia capacitiva es Xc = 1 / (2πfC). Al aumentar la frecuencia f, el valor de Xc disminuye.",
+      "tags": [
+        "condensador",
+        "reactancia",
+        "frecuencia"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Aumenta"
+        },
+        {
+          "id": "b",
+          "text": "Disminuye"
+        },
+        {
+          "id": "c",
+          "text": "Permanece siempre en cero"
+        },
+        {
+          "id": "d",
+          "text": "Se convierte en resistencia infinita"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-008",
+      "section": "electricidad_radioelectricidad",
+      "category": "componentes",
+      "topic": "Inductores",
+      "difficulty": "intermedio",
+      "question": "¿Qué magnitud física almacena principalmente una bobina cuando circula corriente por ella?",
+      "explanation": "La corriente que atraviesa una bobina crea un campo magnético; en ese campo queda almacenada la energía asociada a la inductancia.",
+      "tags": [
+        "bobina",
+        "inductancia",
+        "campo magnetico"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Energía en un campo magnético"
+        },
+        {
+          "id": "b",
+          "text": "Energía en un campo electrostático"
+        },
+        {
+          "id": "c",
+          "text": "Energía química"
+        },
+        {
+          "id": "d",
+          "text": "Energía acústica"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-009",
+      "section": "electricidad_radioelectricidad",
+      "category": "componentes",
+      "topic": "Reactancia inductiva",
+      "difficulty": "intermedio",
+      "question": "En una bobina ideal de inductancia fija, ¿cómo cambia la reactancia inductiva cuando aumenta la frecuencia?",
+      "explanation": "La reactancia inductiva es XL = 2πfL. Con L constante, aumenta linealmente con la frecuencia.",
+      "tags": [
+        "bobina",
+        "reactancia",
+        "frecuencia"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Disminuye en proporción inversa"
+        },
+        {
+          "id": "b",
+          "text": "No cambia"
+        },
+        {
+          "id": "c",
+          "text": "Aumenta"
+        },
+        {
+          "id": "d",
+          "text": "Pasa a ser negativa"
+        }
+      ],
+      "correctOptionId": "c",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-010",
+      "section": "electricidad_radioelectricidad",
+      "category": "componentes",
+      "topic": "Comportamiento del condensador en continua",
+      "difficulty": "intermedio",
+      "question": "En un circuito de corriente continua, ¿qué ocurre idealmente con un condensador una vez finalizado el proceso de carga?",
+      "explanation": "Tras cargarse por completo, la tensión del condensador deja de variar y, en régimen permanente ideal, ya no circula corriente por él.",
+      "tags": [
+        "condensador",
+        "corriente continua",
+        "carga"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Conduce una corriente continua permanente"
+        },
+        {
+          "id": "b",
+          "text": "Se comporta como un circuito abierto"
+        },
+        {
+          "id": "c",
+          "text": "Se comporta como un cortocircuito permanente"
+        },
+        {
+          "id": "d",
+          "text": "Genera por sí mismo una tensión alterna"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-011",
+      "section": "electricidad_radioelectricidad",
+      "category": "corriente_alterna",
+      "topic": "Valor eficaz",
+      "difficulty": "intermedio",
+      "question": "Una señal sinusoidal tiene un valor de pico de 100 V. ¿Cuál es aproximadamente su valor eficaz?",
+      "explanation": "Para una sinusoide, el valor eficaz es el valor de pico dividido por √2. Así, 100 / 1,414 ≈ 70,7 V.",
+      "tags": [
+        "corriente alterna",
+        "valor eficaz",
+        "sinusoide"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "50 V"
+        },
+        {
+          "id": "b",
+          "text": "70,7 V"
+        },
+        {
+          "id": "c",
+          "text": "100 V"
+        },
+        {
+          "id": "d",
+          "text": "141,4 V"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-012",
+      "section": "electricidad_radioelectricidad",
+      "category": "componentes",
+      "topic": "Rectificación",
+      "difficulty": "basico",
+      "question": "¿Cuál es la función principal de un rectificador en una fuente de alimentación?",
+      "explanation": "El rectificador utiliza diodos para permitir el paso de corriente en un sentido, obteniendo una tensión pulsante que después puede filtrarse y regularse.",
+      "tags": [
+        "diodo",
+        "rectificador",
+        "fuente de alimentacion"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Transformar corriente continua en radiofrecuencia"
+        },
+        {
+          "id": "b",
+          "text": "Convertir corriente alterna en una señal unidireccional"
+        },
+        {
+          "id": "c",
+          "text": "Aumentar la frecuencia de red"
+        },
+        {
+          "id": "d",
+          "text": "Eliminar toda variación de tensión sin componentes adicionales"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-013",
+      "section": "electricidad_radioelectricidad",
+      "category": "componentes",
+      "topic": "Diodos",
+      "difficulty": "basico",
+      "question": "En el modelo ideal, ¿qué sucede con un diodo polarizado en sentido inverso?",
+      "explanation": "Un diodo ideal conduce en polarización directa y bloquea la corriente en polarización inversa, mientras no se alcance la ruptura.",
+      "tags": [
+        "diodo",
+        "polarizacion",
+        "semiconductores"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Conduce libremente"
+        },
+        {
+          "id": "b",
+          "text": "Bloquea la corriente"
+        },
+        {
+          "id": "c",
+          "text": "Amplifica la señal"
+        },
+        {
+          "id": "d",
+          "text": "Oscila a su frecuencia de corte"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-014",
+      "section": "electricidad_radioelectricidad",
+      "category": "componentes",
+      "topic": "Transistores",
+      "difficulty": "basico",
+      "question": "¿Qué dos funciones habituales puede realizar un transistor en un circuito electrónico?",
+      "explanation": "Controlando una señal o corriente de entrada, un transistor puede trabajar en la región activa para amplificar o en corte/saturación para conmutar.",
+      "tags": [
+        "transistor",
+        "amplificador",
+        "conmutacion"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Amplificar señales y actuar como interruptor"
+        },
+        {
+          "id": "b",
+          "text": "Almacenar carga como una batería y medir frecuencia"
+        },
+        {
+          "id": "c",
+          "text": "Transformar luz en sonido y corregir antenas"
+        },
+        {
+          "id": "d",
+          "text": "Sustituir cualquier condensador y cualquier bobina"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-015",
+      "section": "electricidad_radioelectricidad",
+      "category": "circuitos",
+      "topic": "Transformadores",
+      "difficulty": "intermedio",
+      "question": "En un transformador ideal, ¿de qué depende principalmente la relación entre la tensión del primario y la del secundario?",
+      "explanation": "En un transformador ideal, Vp / Vs = Np / Ns. La relación de tensiones sigue la relación de espiras de ambos devanados.",
+      "tags": [
+        "transformador",
+        "espiras",
+        "tension"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "De la relación entre el número de espiras"
+        },
+        {
+          "id": "b",
+          "text": "Del color del aislamiento"
+        },
+        {
+          "id": "c",
+          "text": "De la resistencia de la toma de tierra"
+        },
+        {
+          "id": "d",
+          "text": "De la frecuencia de resonancia de la antena"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-016",
+      "section": "electricidad_radioelectricidad",
+      "category": "circuitos",
+      "topic": "Resonancia",
+      "difficulty": "intermedio",
+      "question": "En un circuito RLC serie ideal, ¿qué condición caracteriza la resonancia?",
+      "explanation": "En resonancia serie, XL y XC se cancelan entre sí. La impedancia queda determinada por la resistencia y la corriente alcanza su máximo para una tensión aplicada fija.",
+      "tags": [
+        "RLC",
+        "resonancia",
+        "reactancia"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "La reactancia capacitiva y la inductiva tienen igual magnitud"
+        },
+        {
+          "id": "b",
+          "text": "La resistencia se vuelve infinita"
+        },
+        {
+          "id": "c",
+          "text": "La corriente es necesariamente cero"
+        },
+        {
+          "id": "d",
+          "text": "El condensador pierde su capacidad"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-017",
+      "section": "electricidad_radioelectricidad",
+      "category": "radiofrecuencia",
+      "topic": "Longitud de onda",
+      "difficulty": "basico",
+      "question": "Aproximadamente, ¿qué longitud de onda corresponde a una señal de 30 MHz en el espacio libre?",
+      "explanation": "La longitud de onda se calcula como λ = c / f. Usando c ≈ 300.000.000 m/s y f = 30.000.000 Hz, resulta λ ≈ 10 m.",
+      "tags": [
+        "longitud de onda",
+        "frecuencia",
+        "radiofrecuencia"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "1 m"
+        },
+        {
+          "id": "b",
+          "text": "10 m"
+        },
+        {
+          "id": "c",
+          "text": "30 m"
+        },
+        {
+          "id": "d",
+          "text": "100 m"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-018",
+      "section": "electricidad_radioelectricidad",
+      "category": "radiofrecuencia",
+      "topic": "Longitud de onda",
+      "difficulty": "intermedio",
+      "question": "Una señal de 144 MHz se propaga en el espacio libre. ¿Cuál es su longitud de onda aproximada?",
+      "explanation": "Aplicando λ = c / f: 300 / 144 ≈ 2,08 m, tomando c en millones de metros por segundo y f en MHz.",
+      "tags": [
+        "longitud de onda",
+        "VHF",
+        "frecuencia"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "0,48 m"
+        },
+        {
+          "id": "b",
+          "text": "1,04 m"
+        },
+        {
+          "id": "c",
+          "text": "2,08 m"
+        },
+        {
+          "id": "d",
+          "text": "4,8 m"
+        }
+      ],
+      "correctOptionId": "c",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-019",
+      "section": "electricidad_radioelectricidad",
+      "category": "medidas",
+      "topic": "Decibelios",
+      "difficulty": "intermedio",
+      "question": "Una etapa proporciona una ganancia de potencia de 10 dB. ¿A qué factor de aumento de potencia equivale?",
+      "explanation": "Para potencia, G(dB) = 10 log10(P2/P1). Una ganancia de 10 dB equivale a una relación de potencias de 10:1.",
+      "tags": [
+        "decibelios",
+        "ganancia",
+        "potencia"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "2 veces"
+        },
+        {
+          "id": "b",
+          "text": "5 veces"
+        },
+        {
+          "id": "c",
+          "text": "10 veces"
+        },
+        {
+          "id": "d",
+          "text": "100 veces"
+        }
+      ],
+      "correctOptionId": "c",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-020",
+      "section": "electricidad_radioelectricidad",
+      "category": "medidas",
+      "topic": "Decibelios",
+      "difficulty": "intermedio",
+      "question": "¿Qué cambio aproximado de potencia representa una ganancia de 3 dB?",
+      "explanation": "Una ganancia de 3 dB corresponde aproximadamente a multiplicar la potencia por dos (más exactamente, 1,995). Una pérdida de 3 dB la reduciría aproximadamente a la mitad.",
+      "tags": [
+        "decibelios",
+        "potencia",
+        "ganancia"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "La potencia se duplica"
+        },
+        {
+          "id": "b",
+          "text": "La potencia se reduce a la mitad"
+        },
+        {
+          "id": "c",
+          "text": "La potencia se multiplica por diez"
+        },
+        {
+          "id": "d",
+          "text": "La potencia no cambia"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-021",
+      "section": "electricidad_radioelectricidad",
+      "category": "medidas",
+      "topic": "dBm",
+      "difficulty": "intermedio",
+      "question": "¿Qué nivel de potencia corresponde a 1 mW expresado en dBm?",
+      "explanation": "El dBm toma como referencia 1 mW. Por definición, 1 mW equivale a 0 dBm.",
+      "tags": [
+        "dBm",
+        "potencia",
+        "unidades"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "-30 dBm"
+        },
+        {
+          "id": "b",
+          "text": "0 dBm"
+        },
+        {
+          "id": "c",
+          "text": "10 dBm"
+        },
+        {
+          "id": "d",
+          "text": "30 dBm"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-022",
+      "section": "electricidad_radioelectricidad",
+      "category": "modulacion",
+      "topic": "Modulación de frecuencia",
+      "difficulty": "basico",
+      "question": "En una transmisión FM, ¿qué característica de la portadora varía siguiendo la señal moduladora?",
+      "explanation": "En la modulación de frecuencia, la frecuencia instantánea de la portadora se desvía en función de la señal moduladora; su amplitud ideal permanece constante.",
+      "tags": [
+        "FM",
+        "modulacion",
+        "portadora"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "La frecuencia instantánea"
+        },
+        {
+          "id": "b",
+          "text": "La velocidad de la luz"
+        },
+        {
+          "id": "c",
+          "text": "La resistencia de la antena"
+        },
+        {
+          "id": "d",
+          "text": "La polarización del dieléctrico"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-023",
+      "section": "electricidad_radioelectricidad",
+      "category": "modulacion",
+      "topic": "Modulación de amplitud",
+      "difficulty": "basico",
+      "question": "En AM convencional, ¿qué parámetro de la portadora cambia de acuerdo con la señal de información?",
+      "explanation": "En modulación de amplitud, la envolvente de la portadora varía siguiendo la señal de información, mientras la frecuencia de la portadora permanece nominalmente fija.",
+      "tags": [
+        "AM",
+        "modulacion",
+        "portadora"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "La amplitud"
+        },
+        {
+          "id": "b",
+          "text": "La velocidad de propagación"
+        },
+        {
+          "id": "c",
+          "text": "La frecuencia asignada de forma continua"
+        },
+        {
+          "id": "d",
+          "text": "La longitud física del conductor"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-024",
+      "section": "electricidad_radioelectricidad",
+      "category": "modulacion",
+      "topic": "Banda lateral única",
+      "difficulty": "avanzado",
+      "question": "Frente a AM de doble banda lateral con portadora completa, ¿qué ventaja práctica ofrece normalmente SSB?",
+      "explanation": "SSB transmite una sola banda lateral y normalmente suprime o reduce mucho la portadora, lo que mejora la eficiencia espectral y de potencia respecto a AM convencional.",
+      "tags": [
+        "SSB",
+        "banda lateral",
+        "eficiencia"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Necesita siempre más ancho de banda"
+        },
+        {
+          "id": "b",
+          "text": "Concentra la información en una banda lateral y puede ahorrar ancho de banda y potencia"
+        },
+        {
+          "id": "c",
+          "text": "No requiere ningún oscilador"
+        },
+        {
+          "id": "d",
+          "text": "Solo permite transmitir señales digitales"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-025",
+      "section": "electricidad_radioelectricidad",
+      "category": "receptores",
+      "topic": "Receptor superheterodino",
+      "difficulty": "intermedio",
+      "question": "¿Para qué sirve principalmente el mezclador de un receptor superheterodino?",
+      "explanation": "El mezclador combina la señal de RF con la de un oscilador local y genera componentes suma y diferencia. Una de ellas se selecciona como frecuencia intermedia (FI).",
+      "tags": [
+        "superheterodino",
+        "mezclador",
+        "FI"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Convertir la señal recibida a una frecuencia intermedia"
+        },
+        {
+          "id": "b",
+          "text": "Eliminar la necesidad de antena"
+        },
+        {
+          "id": "c",
+          "text": "Transformar audio en luz"
+        },
+        {
+          "id": "d",
+          "text": "Medir la resistencia de tierra"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-026",
+      "section": "electricidad_radioelectricidad",
+      "category": "receptores",
+      "topic": "Filtros",
+      "difficulty": "basico",
+      "question": "¿Qué hace un filtro paso bajo ideal?",
+      "explanation": "Un filtro paso bajo transmite la banda situada por debajo de su frecuencia de corte y reduce la amplitud de las componentes que quedan por encima.",
+      "tags": [
+        "filtros",
+        "paso bajo",
+        "frecuencia de corte"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Deja pasar las frecuencias inferiores a su frecuencia de corte y atenúa las superiores"
+        },
+        {
+          "id": "b",
+          "text": "Deja pasar únicamente la frecuencia más alta"
+        },
+        {
+          "id": "c",
+          "text": "Amplifica todas las señales por igual"
+        },
+        {
+          "id": "d",
+          "text": "Convierte cualquier señal en corriente continua"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-027",
+      "section": "electricidad_radioelectricidad",
+      "category": "receptores",
+      "topic": "Control automático de ganancia",
+      "difficulty": "intermedio",
+      "question": "¿Cuál es el objetivo del control automático de ganancia (AGC o CAG) en un receptor?",
+      "explanation": "El AGC ajusta la ganancia del receptor en función del nivel recibido para evitar que señales fuertes produzcan una salida excesiva y facilitar la escucha de señales de distinto nivel.",
+      "tags": [
+        "AGC",
+        "CAG",
+        "receptor"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Mantener más uniforme el nivel de señal de salida ante variaciones de la señal recibida"
+        },
+        {
+          "id": "b",
+          "text": "Cambiar automáticamente la banda autorizada"
+        },
+        {
+          "id": "c",
+          "text": "Aumentar siempre la frecuencia intermedia"
+        },
+        {
+          "id": "d",
+          "text": "Desconectar el altavoz cuando se pulsa PTT"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-028",
+      "section": "electricidad_radioelectricidad",
+      "category": "receptores",
+      "topic": "Silenciador",
+      "difficulty": "basico",
+      "question": "¿Qué función cumple el circuito squelch de un receptor de radiotelefonía?",
+      "explanation": "El squelch evita escuchar el ruido de fondo cuando no hay una señal suficientemente intensa o válida. Se abre cuando la señal supera el umbral configurado.",
+      "tags": [
+        "squelch",
+        "receptor",
+        "ruido"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Silenciar el audio cuando la señal recibida no supera el umbral ajustado"
+        },
+        {
+          "id": "b",
+          "text": "Duplicar la potencia de transmisión"
+        },
+        {
+          "id": "c",
+          "text": "Cambiar la polarización de la antena"
+        },
+        {
+          "id": "d",
+          "text": "Convertir FM en SSB"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-029",
+      "section": "electricidad_radioelectricidad",
+      "category": "antenas_y_lineas",
+      "topic": "Adaptación de impedancias",
+      "difficulty": "intermedio",
+      "question": "¿Qué se busca al adaptar la impedancia entre el transmisor, la línea de alimentación y la antena?",
+      "explanation": "Cuando las impedancias están correctamente adaptadas, se minimiza la potencia reflejada en la discontinuidad y se transfiere más potencia hacia la carga.",
+      "tags": [
+        "impedancia",
+        "adaptacion",
+        "SWR",
+        "ROE"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Reducir las reflexiones y transferir eficazmente la potencia"
+        },
+        {
+          "id": "b",
+          "text": "Hacer que la frecuencia cambie con la temperatura"
+        },
+        {
+          "id": "c",
+          "text": "Eliminar la necesidad de una línea de transmisión"
+        },
+        {
+          "id": "d",
+          "text": "Aumentar deliberadamente la relación de ondas estacionarias"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "ELE-030",
+      "section": "electricidad_radioelectricidad",
+      "category": "antenas_y_lineas",
+      "topic": "Relación de ondas estacionarias",
+      "difficulty": "intermedio",
+      "question": "En una línea ideal de 50 Ω terminada en una carga resistiva de 50 Ω, ¿qué relación de ondas estacionarias (ROE/SWR) se obtiene?",
+      "explanation": "La carga coincide con la impedancia característica de la línea, por lo que no hay reflexión ideal y la ROE es 1:1.",
+      "tags": [
+        "ROE",
+        "SWR",
+        "linea de transmision",
+        "impedancia"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "1:1"
+        },
+        {
+          "id": "b",
+          "text": "1:2"
+        },
+        {
+          "id": "c",
+          "text": "2:1"
+        },
+        {
+          "id": "d",
+          "text": "Infinita"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": [
+        "fundamentos_tecnicos_generales"
+      ]
+    },
+    {
+      "id": "REG-001",
+      "section": "reglamentacion_manejo",
+      "category": "estructura_del_examen",
+      "topic": "Partes de la prueba",
+      "difficulty": "basico",
+      "question": "Según el Reglamento español de radioaficionados, ¿qué dos materias se evalúan en la prueba de capacitación?",
+      "explanation": "El artículo 10 de la Orden IET/1311/2013 divide la prueba en conocimientos de electricidad y radioelectricidad, por un lado, y dominio de la normativa aplicable a las estaciones de radioaficionado, por otro.",
+      "tags": [
+        "HAREC",
+        "examen",
+        "normativa"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Informática y electrónica industrial"
+        },
+        {
+          "id": "b",
+          "text": "Electricidad y radioelectricidad; y normativa reglamentaria"
+        },
+        {
+          "id": "c",
+          "text": "Morse y cartografía"
+        },
+        {
+          "id": "d",
+          "text": "Física nuclear y redes IP"
+        }
+      ],
+      "correctOptionId": "b"
+    },
+    {
+      "id": "REG-002",
+      "section": "reglamentacion_manejo",
+      "category": "autorizaciones",
+      "topic": "Autorización administrativa",
+      "difficulty": "basico",
+      "question": "Como regla general, ¿qué se necesita para utilizar el espectro radioeléctrico español como radioaficionado?",
+      "explanation": "El artículo 5 de la Orden IET/1311/2013 establece que el uso especial del espectro por radioaficionados requiere una autorización administrativa individualizada previa, sin perjuicio de los supuestos específicos previstos en la norma.",
+      "tags": [
+        "autorizacion",
+        "espectro",
+        "licencia"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Únicamente comprar un transceptor homologado"
+        },
+        {
+          "id": "b",
+          "text": "Obtener previamente la autorización administrativa de radioaficionado"
+        },
+        {
+          "id": "c",
+          "text": "Estar inscrito en cualquier club privado"
+        },
+        {
+          "id": "d",
+          "text": "Solicitar permiso verbal a otro operador"
+        }
+      ],
+      "correctOptionId": "b"
+    },
+    {
+      "id": "REG-003",
+      "section": "reglamentacion_manejo",
+      "category": "servicio_aficionados",
+      "topic": "Finalidad del servicio",
+      "difficulty": "basico",
+      "question": "¿Cuál de las siguientes actividades encaja con la finalidad propia del servicio de aficionados?",
+      "explanation": "El uso de las bandas de aficionados se orienta a la instrucción individual, la intercomunicación y los estudios técnicos, con carácter personal y sin fines de lucro ni contenido económico.",
+      "tags": [
+        "finalidad",
+        "servicio de aficionados",
+        "sin animo de lucro"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Prestar servicios comerciales de telecomunicaciones"
+        },
+        {
+          "id": "b",
+          "text": "Realizar intercomunicación y experimentación técnica sin fines de lucro"
+        },
+        {
+          "id": "c",
+          "text": "Emitir publicidad a cambio de remuneración"
+        },
+        {
+          "id": "d",
+          "text": "Sustituir de forma habitual a una red pública de telefonía"
+        }
+      ],
+      "correctOptionId": "b"
+    },
+    {
+      "id": "REG-004",
+      "section": "reglamentacion_manejo",
+      "category": "planes_de_banda",
+      "topic": "Planes de banda IARU",
+      "difficulty": "intermedio",
+      "question": "¿Para qué se utilizan como norma general los planes de banda de IARU en la Región 1?",
+      "explanation": "El artículo 2 de la Orden IET/1311/2013 indica que, como norma general, se emplean los planes de banda de IARU Región 1 para facilitar las transmisiones y evitar interferencias e incompatibilidades entre modulaciones.",
+      "tags": [
+        "IARU",
+        "planes de banda",
+        "operacion"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Para establecer los precios de los equipos"
+        },
+        {
+          "id": "b",
+          "text": "Para organizar los segmentos de uso y facilitar la compatibilidad entre modos de emisión"
+        },
+        {
+          "id": "c",
+          "text": "Para asignar números de serie a los transmisores"
+        },
+        {
+          "id": "d",
+          "text": "Para sustituir las autorizaciones administrativas"
+        }
+      ],
+      "correctOptionId": "b"
+    },
+    {
+      "id": "REG-005",
+      "section": "reglamentacion_manejo",
+      "category": "identificacion",
+      "topic": "Distintivo de llamada",
+      "difficulty": "basico",
+      "question": "¿Cuál es la función principal del distintivo de llamada asignado a un radioaficionado?",
+      "explanation": "El distintivo de llamada está asociado a la autorización y permite identificar al titular en las emisiones que realiza.",
+      "tags": [
+        "indicativo",
+        "distintivo",
+        "identificacion"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Identificar al titular en sus emisiones"
+        },
+        {
+          "id": "b",
+          "text": "Indicar la marca del transceptor"
+        },
+        {
+          "id": "c",
+          "text": "Señalar la potencia máxima del equipo"
+        },
+        {
+          "id": "d",
+          "text": "Sustituir la frecuencia de trabajo"
+        }
+      ],
+      "correctOptionId": "a"
+    },
+    {
+      "id": "REG-006",
+      "section": "reglamentacion_manejo",
+      "category": "identificacion",
+      "topic": "Identificación de emisiones",
+      "difficulty": "intermedio",
+      "question": "¿Cuándo debe identificarse una emisión de una estación de radioaficionado conforme al Reglamento español?",
+      "explanation": "El artículo 29 dispone que el distintivo se transmita al comienzo y al final de cada emisión. En emisiones de larga duración debe repetirse al menos cada diez minutos.",
+      "tags": [
+        "indicativo",
+        "identificacion",
+        "diez minutos"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Solo cuando otro operador lo solicite"
+        },
+        {
+          "id": "b",
+          "text": "Al comienzo y al final; si es de larga duración, al menos cada diez minutos"
+        },
+        {
+          "id": "c",
+          "text": "Únicamente al final del día"
+        },
+        {
+          "id": "d",
+          "text": "Solo cuando se transmite en HF"
+        }
+      ],
+      "correctOptionId": "b"
+    },
+    {
+      "id": "REG-007",
+      "section": "reglamentacion_manejo",
+      "category": "comunicaciones",
+      "topic": "Comunicaciones internacionales",
+      "difficulty": "intermedio",
+      "question": "¿Se permiten, con carácter general, las comunicaciones entre estaciones de radioaficionado de distintos países?",
+      "explanation": "El artículo 30 permite con carácter general las comunicaciones internacionales entre estaciones de aficionados, excepto cuando la autoridad competente de uno de los países afectados haya comunicado su oposición.",
+      "tags": [
+        "comunicaciones internacionales",
+        "reglamento"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "No, están prohibidas en todos los casos"
+        },
+        {
+          "id": "b",
+          "text": "Sí, salvo que la autoridad competente de alguno de los países afectados haya notificado su oposición"
+        },
+        {
+          "id": "c",
+          "text": "Solo si ambas estaciones pertenecen al mismo club"
+        },
+        {
+          "id": "d",
+          "text": "Únicamente durante concursos internacionales"
+        }
+      ],
+      "correctOptionId": "b"
+    },
+    {
+      "id": "REG-008",
+      "section": "reglamentacion_manejo",
+      "category": "estaciones",
+      "topic": "Estaciones repetidoras",
+      "difficulty": "basico",
+      "question": "¿Qué cometido tiene una estación repetidora de radioaficionado?",
+      "explanation": "Una repetidora recibe una señal y la retransmite automáticamente, normalmente en otra frecuencia o mediante un sistema digital, para ampliar la cobertura de las comunicaciones.",
+      "tags": [
+        "repetidor",
+        "estaciones automaticas",
+        "cobertura"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Almacenar mensajes privados para su venta"
+        },
+        {
+          "id": "b",
+          "text": "Retransmitir automáticamente señales recibidas para ampliar el alcance de las comunicaciones"
+        },
+        {
+          "id": "c",
+          "text": "Medir exclusivamente la humedad ambiental"
+        },
+        {
+          "id": "d",
+          "text": "Convertir cualquier frecuencia en una frecuencia de radiodifusión"
+        }
+      ],
+      "correctOptionId": "b"
+    },
+    {
+      "id": "REG-009",
+      "section": "reglamentacion_manejo",
+      "category": "estaciones",
+      "topic": "Estaciones automáticas desatendidas",
+      "difficulty": "intermedio",
+      "question": "¿Cuál de estos equipos se considera expresamente una estación automática desatendida en el Reglamento?",
+      "explanation": "El artículo 24 incluye entre las estaciones automáticas desatendidas los repetidores analógicos y digitales, radiobalizas y otras estaciones que cumplan la definición reglamentaria.",
+      "tags": [
+        "repetidor",
+        "radiobaliza",
+        "estacion desatendida"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Un repetidor analógico"
+        },
+        {
+          "id": "b",
+          "text": "Un micrófono de mano"
+        },
+        {
+          "id": "c",
+          "text": "Un medidor de ROE portátil"
+        },
+        {
+          "id": "d",
+          "text": "Una fuente de alimentación de laboratorio"
+        }
+      ],
+      "correctOptionId": "a"
+    },
+    {
+      "id": "REG-010",
+      "section": "reglamentacion_manejo",
+      "category": "autorizaciones",
+      "topic": "Certificado HAREC",
+      "difficulty": "intermedio",
+      "question": "¿Qué acredita esencialmente el certificado HAREC?",
+      "explanation": "HAREC es el certificado armonizado de examen de radioaficionado. Acredita la capacitación examinada, pero no debe confundirse con una autorización ilimitada para utilizar cualquier frecuencia o potencia.",
+      "tags": [
+        "HAREC",
+        "certificado",
+        "CEPT"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "La propiedad de una estación fija concreta"
+        },
+        {
+          "id": "b",
+          "text": "La superación de conocimientos armonizados para operar estaciones de radioaficionado"
+        },
+        {
+          "id": "c",
+          "text": "La autorización para emitir en cualquier frecuencia"
+        },
+        {
+          "id": "d",
+          "text": "La homologación comercial de un transceptor"
+        }
+      ],
+      "correctOptionId": "b"
+    },
+    {
+      "id": "REG-011",
+      "section": "reglamentacion_manejo",
+      "category": "autorizaciones",
+      "topic": "Licencia CEPT",
+      "difficulty": "intermedio",
+      "question": "¿Qué facilita una licencia de radioaficionado conforme a la recomendación CEPT cuando se viaja a otro país participante?",
+      "explanation": "El marco CEPT facilita la operación temporal transfronteriza, pero el operador debe cumplir las condiciones aplicables y las reglas del país desde el que transmite.",
+      "tags": [
+        "CEPT",
+        "licencia",
+        "operacion internacional"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Operar temporalmente bajo las condiciones CEPT y las normas del país visitado"
+        },
+        {
+          "id": "b",
+          "text": "Transmitir sin identificarse"
+        },
+        {
+          "id": "c",
+          "text": "Utilizar cualquier banda sin restricciones"
+        },
+        {
+          "id": "d",
+          "text": "Evitar todas las normas nacionales del país visitado"
+        }
+      ],
+      "correctOptionId": "a"
+    },
+    {
+      "id": "REG-012",
+      "section": "reglamentacion_manejo",
+      "category": "frecuencias",
+      "topic": "Cuadro Nacional de Atribución de Frecuencias",
+      "difficulty": "intermedio",
+      "question": "¿Qué documento nacional recoge la atribución de bandas de frecuencias a los distintos servicios radioeléctricos en España?",
+      "explanation": "El CNAF organiza las atribuciones de frecuencias a los distintos servicios en España. El uso por radioaficionados debe respetar las bandas y condiciones que les estén atribuidas.",
+      "tags": [
+        "CNAF",
+        "frecuencias",
+        "espectro"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "El Cuadro Nacional de Atribución de Frecuencias (CNAF)"
+        },
+        {
+          "id": "b",
+          "text": "El catálogo de fabricantes de equipos"
+        },
+        {
+          "id": "c",
+          "text": "El registro mercantil"
+        },
+        {
+          "id": "d",
+          "text": "El plan de numeración telefónica"
+        }
+      ],
+      "correctOptionId": "a"
+    },
+    {
+      "id": "REG-013",
+      "section": "reglamentacion_manejo",
+      "category": "procedimientos_operativos",
+      "topic": "Comprobación antes de transmitir",
+      "difficulty": "basico",
+      "question": "Antes de iniciar una llamada en una frecuencia, ¿cuál es la práctica operativa más adecuada?",
+      "explanation": "Escuchar antes de transmitir ayuda a evitar interferencias con comunicados en curso y a confirmar que se está utilizando un segmento apropiado para el modo y la actividad.",
+      "tags": [
+        "escucha previa",
+        "procedimiento operativo",
+        "interferencias"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Pulsar PTT repetidamente para comprobar si alguien responde"
+        },
+        {
+          "id": "b",
+          "text": "Escuchar primero y comprobar que la frecuencia y el modo son adecuados"
+        },
+        {
+          "id": "c",
+          "text": "Transmitir sin distintivo para no ocupar tiempo"
+        },
+        {
+          "id": "d",
+          "text": "Aumentar la potencia al máximo sin comprobar la ROE"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-014",
+      "section": "reglamentacion_manejo",
+      "category": "procedimientos_operativos",
+      "topic": "Uso de potencia",
+      "difficulty": "intermedio",
+      "question": "¿Qué criterio debe seguir un radioaficionado al elegir la potencia de transmisión?",
+      "explanation": "La buena práctica operativa consiste en limitar la potencia a la necesaria y respetar siempre los límites reglamentarios y técnicos aplicables a la banda y a la estación.",
+      "tags": [
+        "potencia",
+        "buenas practicas",
+        "limites"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Usar siempre la potencia máxima del equipo"
+        },
+        {
+          "id": "b",
+          "text": "Emplear la mínima potencia necesaria para establecer una comunicación fiable, sin superar los límites aplicables"
+        },
+        {
+          "id": "c",
+          "text": "Aumentarla hasta que otras estaciones dejen de recibir"
+        },
+        {
+          "id": "d",
+          "text": "Ignorar las condiciones de la banda si la antena tiene ganancia"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-015",
+      "section": "reglamentacion_manejo",
+      "category": "procedimientos_operativos",
+      "topic": "Interferencias perjudiciales",
+      "difficulty": "intermedio",
+      "question": "Si se comprueba que una transmisión experimental está causando interferencias a otro sistema radioeléctrico, ¿qué actuación prudente debe adoptarse?",
+      "explanation": "La protección de otros servicios y la prevención de interferencias son obligaciones esenciales. La Orden contempla la suspensión inmediata en supuestos de interferencia descritos para usos experimentales; en todo caso, no se debe persistir en una emisión perjudicial.",
+      "tags": [
+        "interferencias",
+        "seguridad operativa",
+        "emisiones"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Continuar transmitiendo para comprobar si desaparecen"
+        },
+        {
+          "id": "b",
+          "text": "Suspender la emisión afectada y revisar las condiciones antes de reanudarla"
+        },
+        {
+          "id": "c",
+          "text": "Aumentar la potencia para imponerse a la interferencia"
+        },
+        {
+          "id": "d",
+          "text": "Cambiar el distintivo de llamada"
+        }
+      ],
+      "correctOptionId": "b"
+    },
+    {
+      "id": "REG-016",
+      "section": "reglamentacion_manejo",
+      "category": "codigos_operativos",
+      "topic": "Código Q: QRM",
+      "difficulty": "basico",
+      "question": "En el código Q utilizado por radioaficionados, ¿a qué se refiere QRM?",
+      "explanation": "QRM se utiliza para indicar interferencia de origen humano o de otras transmisiones que dificulta la recepción.",
+      "tags": [
+        "codigo Q",
+        "QRM",
+        "interferencias"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Interferencia de otras señales o estaciones"
+        },
+        {
+          "id": "b",
+          "text": "Ubicación de la estación"
+        },
+        {
+          "id": "c",
+          "text": "Fin de la transmisión"
+        },
+        {
+          "id": "d",
+          "text": "Cambio de frecuencia"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-017",
+      "section": "reglamentacion_manejo",
+      "category": "codigos_operativos",
+      "topic": "Código Q: QRN",
+      "difficulty": "basico",
+      "question": "¿Qué tipo de perturbación suele indicar el código QRN?",
+      "explanation": "QRN se emplea para referirse al ruido atmosférico o natural que afecta a la recepción, a diferencia de QRM, asociado a interferencias de otras señales.",
+      "tags": [
+        "codigo Q",
+        "QRN",
+        "ruido"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Ruido de origen natural o atmosférico"
+        },
+        {
+          "id": "b",
+          "text": "Una solicitud de cambio de frecuencia"
+        },
+        {
+          "id": "c",
+          "text": "La confirmación de una tarjeta QSL"
+        },
+        {
+          "id": "d",
+          "text": "La potencia de salida del transmisor"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-018",
+      "section": "reglamentacion_manejo",
+      "category": "codigos_operativos",
+      "topic": "Código Q: QSY",
+      "difficulty": "basico",
+      "question": "Si un operador propone QSY, ¿qué está solicitando normalmente?",
+      "explanation": "QSY significa cambiar la frecuencia de trabajo o trasladar el comunicado a otra frecuencia.",
+      "tags": [
+        "codigo Q",
+        "QSY",
+        "frecuencia"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Cambiar a otra frecuencia"
+        },
+        {
+          "id": "b",
+          "text": "Finalizar definitivamente la autorización"
+        },
+        {
+          "id": "c",
+          "text": "Enviar una tarjeta postal"
+        },
+        {
+          "id": "d",
+          "text": "Aumentar la tensión de alimentación"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-019",
+      "section": "reglamentacion_manejo",
+      "category": "codigos_operativos",
+      "topic": "Código Q: QRT",
+      "difficulty": "basico",
+      "question": "¿Qué indica un operador cuando comunica QRT?",
+      "explanation": "QRT se utiliza para indicar que se deja de transmitir o que se da por terminada la actividad de la estación en ese momento.",
+      "tags": [
+        "codigo Q",
+        "QRT",
+        "fin de transmision"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Que va a cesar la transmisión"
+        },
+        {
+          "id": "b",
+          "text": "Que desea subir de frecuencia"
+        },
+        {
+          "id": "c",
+          "text": "Que la señal es excelente"
+        },
+        {
+          "id": "d",
+          "text": "Que solicita la ubicación del corresponsal"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-020",
+      "section": "reglamentacion_manejo",
+      "category": "codigos_operativos",
+      "topic": "Código Q: QTH",
+      "difficulty": "basico",
+      "question": "¿Qué información se solicita habitualmente con el código QTH?",
+      "explanation": "QTH se utiliza para preguntar o comunicar la ubicación de una estación, normalmente mediante una localidad o una referencia geográfica.",
+      "tags": [
+        "codigo Q",
+        "QTH",
+        "localizacion"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "La ubicación o localización de la estación"
+        },
+        {
+          "id": "b",
+          "text": "La frecuencia exacta del oscilador local"
+        },
+        {
+          "id": "c",
+          "text": "El tipo de modulación utilizado"
+        },
+        {
+          "id": "d",
+          "text": "La potencia reflejada por la antena"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-021",
+      "section": "reglamentacion_manejo",
+      "category": "codigos_operativos",
+      "topic": "Código Q: QRZ",
+      "difficulty": "intermedio",
+      "question": "¿Qué significa QRZ? cuando se utiliza para preguntar en una frecuencia?",
+      "explanation": "QRZ? pregunta quién está llamando a la estación. En operación habitual se usa cuando se ha escuchado una llamada pero no se ha identificado correctamente al corresponsal.",
+      "tags": [
+        "codigo Q",
+        "QRZ",
+        "llamadas"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "¿Quién me llama?"
+        },
+        {
+          "id": "b",
+          "text": "¿Cuál es mi potencia?"
+        },
+        {
+          "id": "c",
+          "text": "¿Está ocupada la banda?"
+        },
+        {
+          "id": "d",
+          "text": "¿Cuál es la hora UTC?"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-022",
+      "section": "reglamentacion_manejo",
+      "category": "codigos_operativos",
+      "topic": "Código Q: QSL",
+      "difficulty": "basico",
+      "question": "En el tráfico de radioaficionados, ¿qué expresa normalmente QSL?",
+      "explanation": "QSL confirma que se ha recibido y comprendido el mensaje o que se acusa recibo de una comunicación. También da nombre a la tarjeta o confirmación de contacto.",
+      "tags": [
+        "codigo Q",
+        "QSL",
+        "confirmacion"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Confirmación de recepción o acuse de recibo"
+        },
+        {
+          "id": "b",
+          "text": "Cambio obligatorio de banda"
+        },
+        {
+          "id": "c",
+          "text": "Señal de socorro"
+        },
+        {
+          "id": "d",
+          "text": "Aumento de la potencia de transmisión"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-023",
+      "section": "reglamentacion_manejo",
+      "category": "codigos_operativos",
+      "topic": "Código Q: QSO",
+      "difficulty": "basico",
+      "question": "¿Qué designa habitualmente QSO entre radioaficionados?",
+      "explanation": "QSO es el término habitual para referirse a un contacto o comunicado establecido entre dos estaciones de radioaficionado.",
+      "tags": [
+        "codigo Q",
+        "QSO",
+        "contacto"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Un comunicado o contacto entre estaciones"
+        },
+        {
+          "id": "b",
+          "text": "Una antena de media onda"
+        },
+        {
+          "id": "c",
+          "text": "Un informe de propagación ionosférica"
+        },
+        {
+          "id": "d",
+          "text": "Un cambio de alimentación"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-024",
+      "section": "reglamentacion_manejo",
+      "category": "alfabeto_fonetico",
+      "topic": "Alfabeto ICAO",
+      "difficulty": "basico",
+      "question": "¿Qué palabra del alfabeto fonético internacional corresponde a la letra N?",
+      "explanation": "La palabra normalizada para deletrear la letra N es November. El uso del alfabeto fonético reduce errores al transmitir indicativos y datos.",
+      "tags": [
+        "ICAO",
+        "alfabeto fonetico",
+        "November"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "November"
+        },
+        {
+          "id": "b",
+          "text": "Novembert"
+        },
+        {
+          "id": "c",
+          "text": "Nancy"
+        },
+        {
+          "id": "d",
+          "text": "Nairobi"
+        }
+      ],
+      "correctOptionId": "a",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-025",
+      "section": "reglamentacion_manejo",
+      "category": "alfabeto_fonetico",
+      "topic": "Alfabeto ICAO",
+      "difficulty": "intermedio",
+      "question": "Al deletrear un indicativo, ¿qué palabra normalizada representa la letra J?",
+      "explanation": "La forma normalizada del alfabeto radiotelefónico ICAO es Juliett, escrita con doble t al final.",
+      "tags": [
+        "ICAO",
+        "alfabeto fonetico",
+        "Juliett"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Juliet"
+        },
+        {
+          "id": "b",
+          "text": "Juliett"
+        },
+        {
+          "id": "c",
+          "text": "Jupiter"
+        },
+        {
+          "id": "d",
+          "text": "January"
+        }
+      ],
+      "correctOptionId": "b",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-026",
+      "section": "reglamentacion_manejo",
+      "category": "procedimientos_operativos",
+      "topic": "Señal de socorro",
+      "difficulty": "basico",
+      "question": "¿Qué palabra se utiliza internacionalmente como señal radiotelefónica de socorro?",
+      "explanation": "MAYDAY es la señal radiotelefónica internacional de socorro, reservada para indicar peligro grave e inminente que requiere asistencia inmediata.",
+      "tags": [
+        "socorro",
+        "MAYDAY",
+        "emergencias"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "SECURITÉ"
+        },
+        {
+          "id": "b",
+          "text": "PAN PAN"
+        },
+        {
+          "id": "c",
+          "text": "MAYDAY"
+        },
+        {
+          "id": "d",
+          "text": "BREAK"
+        }
+      ],
+      "correctOptionId": "c",
+      "sourceRefs": []
+    },
+    {
+      "id": "REG-027",
+      "section": "reglamentacion_manejo",
+      "category": "identificacion",
+      "topic": "Prefijos españoles",
+      "difficulty": "intermedio",
+      "question": "¿Qué series de prefijos contempla el Reglamento para los distintivos de autorizaciones individuales ordinarias de radioaficionado en España?",
+      "explanation": "El artículo 27 contempla EA, EB y EC para autorizaciones individuales o estaciones colectivas. Otros prefijos se reservan para usos o tipos de estación específicos.",
+      "tags": [
+        "prefijos",
+        "indicativos",
+        "EA",
+        "EB",
+        "EC"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "EA, EB y EC"
+        },
+        {
+          "id": "b",
+          "text": "ED, EE y EF exclusivamente"
+        },
+        {
+          "id": "c",
+          "text": "AM, AN y AO"
+        },
+        {
+          "id": "d",
+          "text": "UR, RC y RK"
+        }
+      ],
+      "correctOptionId": "a"
+    },
+    {
+      "id": "REG-028",
+      "section": "reglamentacion_manejo",
+      "category": "identificacion",
+      "topic": "Indicativos en estaciones móviles y portables",
+      "difficulty": "avanzado",
+      "question": "¿Qué sufijo puede añadirse opcionalmente al distintivo al operar desde una estación portable?",
+      "explanation": "El artículo 29 contempla opcionalmente el añadido /P para identificar una operación portable. También prevé otros sufijos para situaciones móviles específicas.",
+      "tags": [
+        "portable",
+        "indicativo",
+        "sufijos"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "/P"
+        },
+        {
+          "id": "b",
+          "text": "/R"
+        },
+        {
+          "id": "c",
+          "text": "/X"
+        },
+        {
+          "id": "d",
+          "text": "/Q"
+        }
+      ],
+      "correctOptionId": "a"
+    },
+    {
+      "id": "REG-029",
+      "section": "reglamentacion_manejo",
+      "category": "estaciones",
+      "topic": "Estaciones fijas",
+      "difficulty": "intermedio",
+      "question": "Además de la autorización personal de radioaficionado, ¿qué exige el Reglamento para emitir desde una estación fija?",
+      "explanation": "El artículo 5 diferencia la autorización personal de radioaficionado de la licencia que deben tener las estaciones fijas. Las estaciones móviles o portátiles se contemplan de forma distinta en el propio artículo.",
+      "tags": [
+        "estacion fija",
+        "licencia",
+        "autorizacion"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "La licencia preceptiva de la estación fija"
+        },
+        {
+          "id": "b",
+          "text": "La afiliación obligatoria a un radioclub"
+        },
+        {
+          "id": "c",
+          "text": "Un permiso de cada estación que se escuche"
+        },
+        {
+          "id": "d",
+          "text": "Una homologación individual del micrófono"
+        }
+      ],
+      "correctOptionId": "a"
+    },
+    {
+      "id": "REG-030",
+      "section": "reglamentacion_manejo",
+      "category": "responsabilidad_operador",
+      "topic": "Responsabilidad e inspección",
+      "difficulty": "intermedio",
+      "question": "¿Qué obligación tiene el titular de una autorización respecto a las actuaciones de inspección de las estaciones y equipos de radioaficionado?",
+      "explanation": "El Reglamento somete las estaciones y equipos a inspección por la Administración competente y obliga a sus titulares a facilitar el acceso a los emplazamientos a los funcionarios habilitados.",
+      "tags": [
+        "inspeccion",
+        "responsabilidad",
+        "titular"
+      ],
+      "sourceRefs": [
+        "boe_iet1311_2013"
+      ],
+      "type": "single_choice",
+      "options": [
+        {
+          "id": "a",
+          "text": "Impedir siempre el acceso a la instalación"
+        },
+        {
+          "id": "b",
+          "text": "Facilitar las actuaciones inspectoras previstas por la normativa"
+        },
+        {
+          "id": "c",
+          "text": "Permitir únicamente inspecciones de fabricantes"
+        },
+        {
+          "id": "d",
+          "text": "Desconectar el indicativo durante una inspección"
+        }
+      ],
+      "correctOptionId": "b"
+    }
+  ]
+}

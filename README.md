@@ -122,7 +122,15 @@ ni cuerpos. Las lecturas siguen registrándose con `storage.workshop.*`. El hist
 por elemento se consulta en `GET /api/tracing/workshop/:targetId/history`
 (permiso `tracing:app`, 25 cambios, reutiliza el índice `targetId` + `action` +
 `occurredAt`) y se muestra en la página de almacenamiento del taller; el historial
-global del taller sigue en Monitorización. Los eventos de categorías usan como
+"examPractice": {
+  "users": {
+    "$userId": {
+      "exams": {
+        ".indexOn": ["startedAt"]
+      }
+    }
+  }
+}global del taller sigue en Monitorización. Los eventos de categorías usan como
 objetivo el ajuste de categorías, no un elemento físico.
 
 El navegador emite además, solo con `durationMs`, medidas de rendimiento:
@@ -1029,3 +1037,59 @@ Las categorías editables de los materiales se guardan por separado en
 `DELETE /api/workshop-storage/categories/:id`. La primera configuración ofrece Tornillos,
 Tuercas, Arandelas, Tacos, Piezas eléctricas y Otros. Retirar una opción no modifica los
 materiales ya registrados con esa categoría.
+
+## Exámenes de práctica
+
+La página «Exámenes» permite practicar con diez preguntas, elegir uno de los
+dos bloques o un examen mixto (cinco de cada bloque), y un límite de 5, 10,
+15, 20 o 30 minutos. Las respuestas se guardan en el servidor; se corrigen al
+finalizar o al agotarse el plazo. Si se cierra el navegador, un intento
+caducado se corrige al consultar su historial o volver a abrirlo.
+
+Los usuarios con `app:access` pueden hacer exámenes y solo ven su historial.
+Los usuarios con `users:manage` pueden importar preguntas. La importación se
+valida por completo antes de guardar y añade o actualiza por ID, sin eliminar
+otras preguntas. Acepta JSON UTF-8 según `data/exams/banco_practica_harec.json`,
+con hasta 1.000 preguntas y 2 MB por archivo (2.097.152 bytes). El botón «Cargar banco HAREC
+inicial» importa explícitamente las 60 preguntas incluidas en el repositorio;
+volver a pulsarlo actualiza los IDs coincidentes. Contrasta las preguntas
+normativas con la legislación e instrucciones oficiales vigentes.
+
+Los datos nuevos de Realtime Database se guardan en
+`examPractice/bank/questions` y `examPractice/users/<usuario>/exams`. Cada
+intento conserva una instantánea de sus preguntas y soluciones, de modo que
+una importación posterior no modifica el resultado. Las soluciones no se
+envían al cliente hasta la corrección. La página puede recuperar el examen
+activo en la misma pestaña; los resultados se conservan en Firebase. Las
+estadísticas y el historial muestran como máximo los 200 intentos más recientes.
+Para que la consulta del historial sea eficiente, configura en las reglas de
+Realtime Database el índice `.indexOn: ["startedAt"]` bajo
+`examPractice/users/$userId/exams`, conservando las reglas de acceso existentes.
+Por ejemplo, integra este fragmento en el árbol `rules` existente en Firebase
+Console → Realtime Database → Reglas:
+
+```json
+{
+  "examPractice": {
+    "users": {
+      "$userId": {
+        "exams": {
+          ".indexOn": ["startedAt"]
+        }
+      }
+    }
+  }
+}
+```
+
+Publica las reglas después de integrar el fragmento: no reemplaces el documento
+completo ni elimines las reglas que ya existen. El índice se aplica a todos los
+usuarios y no concede permisos de lectura ni escritura. Si ya hay un `.indexOn`
+en esa ruta, añade `startedAt` a su lista. Sin publicarlo, Firebase rechazará
+la consulta del historial; reiniciar el servidor no crea el índice.
+
+La API está protegida por sesión, `app:access` y CSRF en escrituras:
+`GET /api/exams/sections`, `GET /api/exams/history`, `POST /api/exams/exams`,
+`GET /api/exams/exams/:id`, `PUT /api/exams/exams/:id/answer` y
+`POST /api/exams/exams/:id/finish`. La carga administrativa se realiza con
+`POST /api/exams/import` (multipart `file`) o `POST /api/exams/import-initial`.
