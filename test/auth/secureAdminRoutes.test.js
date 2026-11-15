@@ -57,5 +57,35 @@ for (const enabled of [false, true]) {
             const response = await fetch(base + route, { method, headers: { "x-csrf-token": "valid" } });
             assert.deepEqual(await response.json(), { mode: enabled ? "secure" : "legacy", name });
         }
+
     });
 }
+
+test("module administration requires both flags and CSRF on writes", async (t) => {
+    const previousModule = process.env.MODULE_PERMISSIONS_ENABLED;
+    const previousSecure = process.env.SECURE_ADMIN_ENABLED;
+    process.env.SECURE_ADMIN_ENABLED = "true";
+    process.env.MODULE_PERMISSIONS_ENABLED = "true";
+    t.after(() => {
+        if (previousModule === undefined) delete process.env.MODULE_PERMISSIONS_ENABLED;
+        else process.env.MODULE_PERMISSIONS_ENABLED = previousModule;
+        if (previousSecure === undefined) delete process.env.SECURE_ADMIN_ENABLED;
+        else process.env.SECURE_ADMIN_ENABLED = previousSecure;
+    });
+    const server = await serverFor(true);
+    t.after(() => new Promise((resolve) => server.close(resolve)));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    for (const [method, route, name] of [
+        ["POST", "/roles", "createRole"], ["PATCH", "/roles/r", "updateRoleProfile"],
+        ["POST", "/roles/r/deactivate", "deactivateRole"],
+        ["GET", "/users/u/permissions", "getUserExceptions"],
+        ["PATCH", "/users/u/permissions", "updateUserExceptions"]
+    ]) {
+        if (method !== "GET") assert.equal((await fetch(base + route, { method })).status, 403);
+        const response = await fetch(base + route, { method, headers: { "x-csrf-token": "valid" } });
+        assert.deepEqual(await response.json(), { mode: "secure", name });
+        process.env.MODULE_PERMISSIONS_ENABLED = "false";
+        assert.equal((await fetch(base + route, { method, headers: { "x-csrf-token": "valid" } })).status, 404);
+        process.env.MODULE_PERMISSIONS_ENABLED = "true";
+    }
+});

@@ -827,18 +827,19 @@ Las cuentas de la aplicación usan credenciales propias, verificadas por la API;
 
 El servidor verifica sesiones opacas mediante una cookie `HttpOnly`, con expiración y revocación al cambiar contraseña o estado, y protege las solicitudes de escritura con un token CSRF de doble envío. Las rutas de inventario existentes requieren una sesión válida y el permiso `app:access`. Las rutas de administración requieren los permisos correspondientes.
 
-El catálogo de módulos y la administración por módulos de `src/permissions/`
-siguen siendo bases preparatorias: todavía no están integrados con la
-administración ni la protección de rutas de negocio. La autenticación calcula
+El catálogo y la protección HTTP por módulos están en integración. La bandera
+`MODULE_PERMISSIONS_ENABLED` está desactivada por defecto y el servidor rechaza
+su activación mientras no se complete la validación; no habilitarla en despliegues.
+La autenticación calcula
 los permisos efectivos aplicando `allow` o `deny` sobre
 el permiso heredado del rol; la ausencia de excepción conserva el valor heredado.
 Un rol inexistente o inactivo no permite iniciar ni mantener una sesión.
 El catálogo está disponible para usuarios autenticados en `GET /api/auth/modules`.
-Existe un middleware de autorización por módulo, pero ninguna ruta lo utiliza aún.
-La operación preparatoria de excepciones escribe el cambio y su evento
-`user.permissions.updated` en la misma transacción; no tiene endpoint. Antes de exponerla, todos los
-publicadores de la outbox deben soportar ese tipo de evento y debe completarse
-la protección administrativa y de módulos.
+Las rutas de negocio y las proyecciones compartidas tienen comprobaciones
+preparadas para esa bandera. Las rutas administrativas de perfiles y excepciones
+también están conectadas, pero requieren tanto la bandera de módulos como la
+administración segura y, por tanto, no son activables todavía. Los cambios de
+excepciones escriben `user.permissions.updated` en la misma transacción.
 La asignación preparatoria de roles también revalida la sesión y los permisos
 del gestor dentro de la transacción, impide cambios propios y roles inactivos,
 protege los administradores y audita el cambio.
@@ -869,7 +870,7 @@ editar y desactivar roles sin usuarios asignados, con auditoría transaccional
 `role.profile.created`, `role.profile.updated` y `role.profile.deactivated`.
 Revalidan la sesión y los permisos del administrador dentro de la transacción,
 impiden modificar el propio rol y desactivar los roles predeterminados `admin` y
-`user`, e invalidan la caché local. No tienen endpoints. Antes de exponerlas, todos los procesos
+`user`, e invalidan la caché local. Antes de activarlas, todos los procesos
 publicadores deben aceptar estos eventos, el worker debe estar activo y deben
 asegurarse los flujos administrativos existentes. El endpoint actual de permisos
 por rol conserva las entradas de módulos que no administra. Las operaciones usan la
